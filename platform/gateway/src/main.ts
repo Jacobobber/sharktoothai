@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2024 Jacob Malm. All rights reserved.
+ * Proprietary and confidential. Unauthorized redistribution or commercial use is prohibited without prior written consent.
+ */
+
 import { config } from "./config";
 import { createServer } from "./http/server";
 import { logger } from "../../../shared/utils/logger";
