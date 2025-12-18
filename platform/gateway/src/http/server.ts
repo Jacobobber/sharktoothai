@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2024 Jacob Malm. All rights reserved.
+ * Proprietary request handling pipeline. Unauthorized redistribution or commercial use is prohibited without prior written consent.
+ */
+
 import express from "express";
 import { requestId } from "./middleware/requestId";
 import { authContext } from "./middleware/authContext";

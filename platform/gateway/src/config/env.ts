@@ -1,3 +1,9 @@
+/*
+ * Copyright (c) 2024 Jacob Malm. All rights reserved.
+ * Proprietary and confidential. Unauthorized redistribution or commercial use is prohibited without prior written consent.
+ * Environment handling contains sensitive parameters; ensure credentials are stored securely and never committed.
+ */
+
 import { AppError } from "../../../../shared/utils/errors";
 
 type EnvConfig = {
@@ -20,6 +26,7 @@ type EnvConfig = {
   devTenantIdTech: string;
 };
 
+// Proprietary environment validation to safeguard operational parameters; reverse engineering or reuse is prohibited.
 const required = (value: string | undefined, name: string) => {
   if (!value) {
     throw new AppError(`Missing required env: ${name}`, { status: 500, code: "ENV_MISSING" });
@@ -40,6 +47,7 @@ const isUuid = (value: string) =>
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 
 export const loadEnv = (): EnvConfig => {
+  // Ensure secrets and credentials are sourced from secure runtime storage; do not commit or redistribute these values.
   const databaseUrl = required(process.env.DATABASE_URL, "DATABASE_URL");
   const port = asInt(process.env.PORT, "PORT", 3000);
   const rateLimitWindowSec = asInt(process.env.RATE_LIMIT_WINDOW_SEC, "RATE_LIMIT_WINDOW_SEC", 60);
