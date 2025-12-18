@@ -1,4 +1,4 @@
-# Stro Pilot (Platform Core + RO Assistant)
+# STRO Pilot (Platform Core + RO Assistant)
 
 This repository contains a pilot-ready implementation of the Platform Core gateway and the RO Assistant workload for a single dealership instance. It enforces tenant isolation via Postgres RLS, RBAC-guarded APIs, audited access, and PII-safe ingestion/search/answer flows.
 
