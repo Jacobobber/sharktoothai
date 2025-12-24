@@ -14,6 +14,7 @@ import { policyMiddleware } from "./middleware/policyMiddleware";
 import { errorHandler } from "./middleware/errorHandler";
 import { healthRouter } from "./routes/health";
 import { authRouter } from "./routes/auth";
+import { authMeRouter } from "./routes/authMe";
 import { auditRouter } from "./routes/audit";
 import { secretsRouter } from "./routes/secrets";
 import { policyRouter } from "./routes/policy";
@@ -24,6 +25,12 @@ export const createServer = () => {
 
   app.use(express.json({ limit: "1mb" }));
   app.use(requestId);
+
+  // Public Routes
+  app.use(healthRouter);
+  app.use(authRouter);
+
+  // Auth boundary starts here
   app.use(authContext);
   app.use(tenantGuard);
   app.use(rbacGuard);
@@ -31,8 +38,8 @@ export const createServer = () => {
   app.use(rlsContext);
   app.use(rateLimit);
 
-  app.use(healthRouter);
-  app.use(authRouter);
+  // Protected Routes
+  app.use(authMeRouter);
   app.use(auditRouter);
   app.use(secretsRouter);
   app.use(policyRouter);

@@ -1,7 +1,6 @@
 import { Router } from "express";
 import bcrypt from "bcryptjs";
 import { Pool } from "pg";
-import type { RequestWithContext } from "../../../../../shared/types/api";
 import { issueToken } from "../../core/auth/tokens";
 import { auditLog } from "../../core/audit/auditService";
 import { AppError } from "../../../../../shared/utils/errors";
@@ -54,15 +53,4 @@ authRouter.post("/auth/login", async (req, res, next) => {
   }
 });
 
-authRouter.get("/auth/me", async (req, res, next) => {
-  const ctx = (req as RequestWithContext).context;
-  if (!ctx?.userId || !ctx?.tenantId || !ctx?.role) {
-    return next(new AppError("Not authenticated", { status: 401, code: "AUTH_REQUIRED" }));
-  }
-  return res.status(200).json({
-    user_id: ctx.userId,
-    tenant_id: ctx.tenantId,
-    role: ctx.role,
-    request_id: ctx.requestId
-  });
-});
+// /auth/me is mounted in the protected router.

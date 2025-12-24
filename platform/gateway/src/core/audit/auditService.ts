@@ -29,7 +29,18 @@ const sanitizeMetadata = (metadata?: Record<string, unknown>) => {
 };
 
 export const auditLog = async (ctx: RequestContext, event: AuditEvent) => {
-  const safeCtx = assertTenantContext(ctx);
+  
+  const hasTenantContext = Boolean(ctx?.tenantId && ctx?.requestId);
+
+  const safeCtx = hasTenantContext
+    ? assertTenantContext(ctx)
+    : {
+        tenantId: null,
+        userId: null,
+        requestId: ctx?.requestId ?? null
+      };
+
+
   const metadata = sanitizeMetadata(event.metadata);
 
   try {
