@@ -16,6 +16,7 @@ authRouter.post("/auth/login", async (req, res, next) => {
   if (!email || !password) {
     return next(new AppError("email and password required", { status: 400, code: "BAD_REQUEST" }));
   }
+  const normalizedEmail = String(email).trim().toLowerCase();
 
   const client = await pool.connect();
   try {
@@ -27,7 +28,7 @@ authRouter.post("/auth/login", async (req, res, next) => {
       pass_hash: string;
       user_active: boolean;
       tenant_active: boolean;
-    }>(`SELECT * FROM app.auth_login_lookup($1)`, [email]);
+    }>(`SELECT * FROM app.auth_login_lookup($1)`, [normalizedEmail]);
 
     const user = result.rows[0];
     if (!user || !user.user_active || !user.tenant_active) {

@@ -3,7 +3,6 @@ BEGIN;
 CREATE SCHEMA IF NOT EXISTS app;
 
 CREATE EXTENSION IF NOT EXISTS vector;
-CREATE EXTENSION IF NOT EXISTS citext;
 
 DO $$ BEGIN
   CREATE TYPE app.user_role AS ENUM ('TECH', 'ADMIN', 'PII_APPROVED');
@@ -39,7 +38,7 @@ CREATE TABLE IF NOT EXISTS app.tenants (
 CREATE TABLE IF NOT EXISTS app.users (
   user_id     uuid PRIMARY KEY,
   tenant_id   uuid NOT NULL REFERENCES app.tenants(tenant_id) ON DELETE CASCADE,
-  email       citext NOT NULL,
+  email       text NOT NULL,
   pass_hash   text NOT NULL,
   role        app.user_role NOT NULL DEFAULT 'TECH',
   is_active   boolean NOT NULL DEFAULT true,

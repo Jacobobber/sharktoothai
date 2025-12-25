@@ -115,7 +115,6 @@ CREATE SCHEMA IF NOT EXISTS app;
 
 CREATE EXTENSION IF NOT EXISTS vector;
 
-CREATE EXTENSION IF NOT EXISTS citext;
 
 
 
@@ -187,7 +186,7 @@ CREATE TABLE IF NOT EXISTS app.users (
 
 &nbsp; tenant\_id   uuid NOT NULL REFERENCES app.tenants(tenant\_id) ON DELETE CASCADE,
 
-&nbsp; email       citext NOT NULL,
+&nbsp; email       text NOT NULL,
 
 &nbsp; pass\_hash   text NOT NULL,
 

@@ -8,7 +8,7 @@ async function main() {
   const client = await pool.connect();
   const tenantId = process.env.SEED_TENANT_ID ?? "00000000-0000-0000-0000-000000000010";
   const userId = process.env.SEED_USER_ID ?? "00000000-0000-0000-0000-000000000001";
-  const email = process.env.SEED_ADMIN_EMAIL ?? "admin@example.com";
+  const email = (process.env.SEED_ADMIN_EMAIL ?? "admin@example.com").trim().toLowerCase();
   const password = process.env.SEED_ADMIN_PASSWORD ?? "ChangeMe123!";
   try {
     const passHash = await bcrypt.hash(password, 10);
@@ -19,7 +19,7 @@ async function main() {
        ON CONFLICT (tenant_id) DO UPDATE SET is_active = true`,
       [tenantId]
     );
-    await client.query("SET LOCAL app.tenant_id = $1", [tenantId]);
+    await client.query("SELECT set_config('app.tenant_id', $1, true)", [tenantId]);
     await client.query(
       `INSERT INTO app.users (user_id, tenant_id, email, pass_hash, role, is_active)
        VALUES ($1, $2, $3, $4, 'ADMIN', true)
