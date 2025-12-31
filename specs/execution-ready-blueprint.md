@@ -23,10 +23,10 @@ LOCAL PILOT
 
 PRODUCTION (AZURE)
 - Same logical services
-- Azure Container Apps or AKS
-- Azure PostgreSQL Flexible Server
-- Azure Key Vault for secrets/keys
-- Azure OpenAI (or OpenAI); PII never sent
+- Azure VM (single instance; gateway + workload services)
+- Postgres (pgvector enabled; VM-hosted)
+- Secrets/keys via VM env or Azure Key Vault (if used)
+- Azure OpenAI; PII never sent
 
 ==================================================
 REPO STRUCTURE
@@ -276,7 +276,7 @@ interface SecretsProvider {
 }
 
 Local: env vars
-Prod: Azure Key Vault
+Prod: VM env vars or Azure Key Vault
 
 ==================================================
 BUILD ORDER

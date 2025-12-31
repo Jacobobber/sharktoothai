@@ -2,7 +2,6 @@ import { randomUUID } from "crypto";
 import type { RequestContext } from "../../../../../shared/types/api";
 import { logger } from "../../../../../shared/utils/logger";
 import { withRequestContext } from "../../db/pg";
-import { assertTenantContext } from "../tenant/tenantContext";
 
 export type AuditEvent = {
   action: string;
@@ -29,29 +28,26 @@ const sanitizeMetadata = (metadata?: Record<string, unknown>) => {
   return Object.keys(safe).length ? safe : null;
 };
 
+const hasRlsContext = (ctx?: RequestContext): ctx is Required<RequestContext> => {
+  return Boolean(ctx?.tenantId && ctx?.userId && ctx?.requestId && ctx?.role);
+};
+
 export const auditLog = async (ctx: RequestContext, event: AuditEvent) => {
-  
-  const hasTenantContext = Boolean(ctx?.tenantId && ctx?.requestId);
+  // Pre-auth or malformed context — skip audit silently
+  if (!hasRlsContext(ctx)) {
+    return;
+  }
 
-  const safeCtx = hasTenantContext
-    ? assertTenantContext(ctx)
-    : {
-        tenantId: null,
-        userId: null,
-        requestId: ctx?.requestId ?? null
-      };
-
-
+  const safeCtx = ctx;
   const metadata = sanitizeMetadata(event.metadata);
 
   try {
     await withRequestContext(safeCtx, async (client) => {
       await client.query(
         `INSERT INTO app.audit_logs
-          (audit_id, tenant_id, user_id, request_id, action, object_type, object_id, metadata)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+          (tenant_id, user_id, request_id, action, object_type, object_id, metadata)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
         [
-          randomUUID(),
           safeCtx.tenantId,
           safeCtx.userId,
           safeCtx.requestId,
@@ -63,7 +59,6 @@ export const auditLog = async (ctx: RequestContext, event: AuditEvent) => {
       );
     });
   } catch (err) {
-    // Do not block request flow on audit write failure; surface to logs for ops.
     logger.error("Failed to write audit log", err);
   }
 };

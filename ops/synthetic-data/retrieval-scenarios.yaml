@@ -1,0 +1,164 @@
+- scenario_id: RS-001
+  user_query: "Intermittent no-start when hot; starter clicks once then nothing."
+  intent_description: "Find ROs where heat-soaked no-start was traced to a starter or solenoid issue."
+  expected_primary_match: "RO-PLACEHOLDER-001"
+  acceptable_secondary_matches:
+    - "RO-PLACEHOLDER-014"
+    - "RO-PLACEHOLDER-022"
+  explicit_non_matches:
+    - "RO-PLACEHOLDER-033"
+    - "RO-PLACEHOLDER-047"
+
+- scenario_id: RS-002
+  user_query: "Customer states brake pedal goes soft after a few stops, fluid level ok."
+  intent_description: "Locate ROs with brake fade from air in lines or master cylinder issues."
+  expected_primary_match: "RO-PLACEHOLDER-002"
+  acceptable_secondary_matches:
+    - "RO-PLACEHOLDER-019"
+    - "RO-PLACEHOLDER-041"
+  explicit_non_matches:
+    - "RO-PLACEHOLDER-028"
+    - "RO-PLACEHOLDER-060"
+
+- scenario_id: RS-003
+  user_query: "Cabin heat weak at idle but improves with rpm."
+  intent_description: "Find cooling/heater flow issues such as low coolant or restricted heater core."
+  expected_primary_match: "RO-PLACEHOLDER-003"
+  acceptable_secondary_matches:
+    - "RO-PLACEHOLDER-025"
+    - "RO-PLACEHOLDER-052"
+  explicit_non_matches:
+    - "RO-PLACEHOLDER-007"
+    - "RO-PLACEHOLDER-038"
+
+- scenario_id: RS-004
+  user_query: "Battery light on, charging voltage low, belt looks fine."
+  intent_description: "Identify ROs where alternator output was low or regulator failure."
+  expected_primary_match: "RO-PLACEHOLDER-004"
+  acceptable_secondary_matches:
+    - "RO-PLACEHOLDER-031"
+    - "RO-PLACEHOLDER-055"
+  explicit_non_matches:
+    - "RO-PLACEHOLDER-012"
+    - "RO-PLACEHOLDER-043"
+
+- scenario_id: RS-005
+  user_query: "Rattle from front end on small bumps, no pull, alignment ok."
+  intent_description: "Find suspension noise issues like sway bar links or strut mounts."
+  expected_primary_match: "RO-PLACEHOLDER-005"
+  acceptable_secondary_matches:
+    - "RO-PLACEHOLDER-027"
+    - "RO-PLACEHOLDER-049"
+  explicit_non_matches:
+    - "RO-PLACEHOLDER-016"
+    - "RO-PLACEHOLDER-066"
+
+- scenario_id: RS-006
+  user_query: "MIL on with rough idle, trims high at idle, improves off idle."
+  intent_description: "Locate vacuum leak or unmetered air issues."
+  expected_primary_match: "RO-PLACEHOLDER-006"
+  acceptable_secondary_matches:
+    - "RO-PLACEHOLDER-036"
+    - "RO-PLACEHOLDER-058"
+  explicit_non_matches:
+    - "RO-PLACEHOLDER-021"
+    - "RO-PLACEHOLDER-064"
+
+- scenario_id: RS-007
+  user_query: "Grinding noise when braking at low speed, rotors recently replaced."
+  intent_description: "Find ROs with pad hardware issues or caliper bracket contact."
+  expected_primary_match: "RO-PLACEHOLDER-007"
+  acceptable_secondary_matches:
+    - "RO-PLACEHOLDER-040"
+    - "RO-PLACEHOLDER-053"
+  explicit_non_matches:
+    - "RO-PLACEHOLDER-002"
+    - "RO-PLACEHOLDER-045"
+
+- scenario_id: RS-008
+  user_query: "Wind noise at highway speed, door seals look ok."
+  intent_description: "Locate ROs involving door alignment or mirror trim leakage."
+  expected_primary_match: "RO-PLACEHOLDER-008"
+  acceptable_secondary_matches:
+    - "RO-PLACEHOLDER-024"
+    - "RO-PLACEHOLDER-057"
+  explicit_non_matches:
+    - "RO-PLACEHOLDER-011"
+    - "RO-PLACEHOLDER-050"
+
+- scenario_id: RS-009
+  user_query: "Intermittent misfire only under load, no issue at idle."
+  intent_description: "Find ignition or fuel delivery issues showing load-only misfire."
+  expected_primary_match: "RO-PLACEHOLDER-009"
+  acceptable_secondary_matches:
+    - "RO-PLACEHOLDER-020"
+    - "RO-PLACEHOLDER-061"
+  explicit_non_matches:
+    - "RO-PLACEHOLDER-006"
+    - "RO-PLACEHOLDER-048"
+
+- scenario_id: RS-010
+  user_query: "Steering wheel shakes on braking from highway speeds."
+  intent_description: "Locate ROs where brake rotor runout or hub issues caused vibration."
+  expected_primary_match: "RO-PLACEHOLDER-010"
+  acceptable_secondary_matches:
+    - "RO-PLACEHOLDER-037"
+    - "RO-PLACEHOLDER-059"
+  explicit_non_matches:
+    - "RO-PLACEHOLDER-005"
+    - "RO-PLACEHOLDER-042"
+
+- scenario_id: RS-011
+  user_query: "HVAC fan works but no airflow from vents on any setting."
+  intent_description: "Find blower door or duct blockage issues with running blower."
+  expected_primary_match: "RO-PLACEHOLDER-011"
+  acceptable_secondary_matches:
+    - "RO-PLACEHOLDER-032"
+    - "RO-PLACEHOLDER-063"
+  explicit_non_matches:
+    - "RO-PLACEHOLDER-003"
+    - "RO-PLACEHOLDER-039"
+
+- scenario_id: RS-012
+  user_query: "Coolant smell in cabin, windows fogging, no external leaks seen."
+  intent_description: "Locate ROs with heater core leaks or HVAC box coolant seepage."
+  expected_primary_match: "RO-PLACEHOLDER-012"
+  acceptable_secondary_matches:
+    - "RO-PLACEHOLDER-026"
+    - "RO-PLACEHOLDER-056"
+  explicit_non_matches:
+    - "RO-PLACEHOLDER-003"
+    - "RO-PLACEHOLDER-044"
+
+- scenario_id: RS-013
+  user_query: "Transmission shudder on light throttle around <MILEAGE_RANGE> cruising."
+  intent_description: "Find ROs with torque converter clutch shudder or fluid issues."
+  expected_primary_match: "RO-PLACEHOLDER-013"
+  acceptable_secondary_matches:
+    - "RO-PLACEHOLDER-035"
+    - "RO-PLACEHOLDER-062"
+  explicit_non_matches:
+    - "RO-PLACEHOLDER-018"
+    - "RO-PLACEHOLDER-054"
+
+- scenario_id: RS-014
+  user_query: "A/C blows warm at idle, cools when driving."
+  intent_description: "Locate ROs with condenser airflow or fan issues affecting idle cooling."
+  expected_primary_match: "RO-PLACEHOLDER-014"
+  acceptable_secondary_matches:
+    - "RO-PLACEHOLDER-029"
+    - "RO-PLACEHOLDER-051"
+  explicit_non_matches:
+    - "RO-PLACEHOLDER-003"
+    - "RO-PLACEHOLDER-041"
+
+- scenario_id: RS-015
+  user_query: "Clicking from front axle on tight turns, no noise straight."
+  intent_description: "Find CV joint or axle issues causing turn-only clicking."
+  expected_primary_match: "RO-PLACEHOLDER-015"
+  acceptable_secondary_matches:
+    - "RO-PLACEHOLDER-034"
+    - "RO-PLACEHOLDER-046"
+  explicit_non_matches:
+    - "RO-PLACEHOLDER-005"
+    - "RO-PLACEHOLDER-067"

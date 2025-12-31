@@ -8,6 +8,7 @@
     "dev": "ts-node-dev --respawn --transpile-only platform/gateway/src/main.ts",
     "lint": "echo \"TODO: add linting\"",
     "db:migrate": "ts-node scripts/migrate.ts",
+    "synthetic:validate": "ts-node ops/synthetic-data/validate_dataset.ts",
     "test:redaction": "ts-node scripts/tests/redaction_harness.ts",
     "test:pii-scan": "ts-node scripts/tests/pii_scan_harness.ts",
     "test:pii-ingest-db": "ts-node scripts/tests/pii_ingest_db_harness.ts"

@@ -1,0 +1,59 @@
+# Synthetic RO Schema (Retrieval Evaluation)
+
+## Required Fields
+- ro_id
+  - Stable unique identifier used to link rows to ground truth mapping.
+- open_date
+  - RO open date (YYYY-MM-DD) for realistic export structure.
+- close_date
+  - RO close date (YYYY-MM-DD) for lifecycle context.
+- vehicle_year
+  - Placeholder year token (<MODEL_YEAR>).
+- vehicle_make
+  - Placeholder make token (<VEHICLE_MODEL>).
+- vehicle_model
+  - Placeholder model token (<VEHICLE_MODEL>).
+- engine_type
+  - Placeholder engine token (<ENGINE_TYPE>).
+- mileage_range
+  - Placeholder mileage bucket (<MILEAGE_RANGE>).
+- complaint_text
+  - Primary symptom text for retrieval.
+- technician_notes
+  - Long-form narrative of diagnosis and repair actions; primary retrieval signal.
+- diagnostic_summary
+  - Short diagnosis statement for query matching.
+- repair_actions
+  - Repair steps performed; supports retrieval overlap.
+- labor_hours
+  - Numeric labor hours used for consistency checks.
+- labor_rate
+  - Fixed labor rate for pricing consistency.
+- labor_cost
+  - Calculated labor cost.
+- parts_cost
+  - Parts cost based on repair category.
+- total_cost
+  - Calculated total cost (labor + parts).
+- warranty_flag
+  - Warranty indicator for operational scenarios.
+- comebacks_flag
+  - Comeback indicator for repeat issue scenarios.
+- repair_category
+  - High-level repair category label.
+- advisor_notes
+  - Non-PII advisor notes for operational context.
+- internal_comments
+  - Non-PII internal comments for service context.
+
+## Explicitly Excluded Fields
+- customer_name, customer_contact
+  - Excluded to avoid PII; not needed for retrieval relevance.
+- vin, plate_number, address
+  - PII or unique identifiers; retrieval should be content-based, not identity-based.
+- warranty_claim_id, insurer_reference
+  - Administrative identifiers do not improve retrieval relevance.
+- store_id, dealership_group
+  - Single-dealer scope; cross-store retrieval is out of scope.
+- attachments_metadata
+  - Binary or external metadata is not necessary for text retrieval evaluation.

@@ -23,7 +23,8 @@ import { workloadsRouter } from "./routes/workloads";
 export const createServer = () => {
   const app = express();
 
-  app.use(express.json({ limit: "1mb" }));
+  const maxUploadBytes = Number(process.env.MAX_UPLOAD_BYTES ?? 5 * 1024 * 1024);
+  app.use(express.json({ limit: maxUploadBytes * 2 }));
   app.use(requestId);
 
   // Public Routes
