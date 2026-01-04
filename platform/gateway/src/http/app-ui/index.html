@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>RO Assistant</title>
+    <link rel="stylesheet" href="/app/styles.css" />
+  </head>
+  <body class="app-body">
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark">RO</div>
+          <div>
+            <h1>Repair Order Assistant</h1>
+            <p>Tenant-scoped knowledge</p>
+          </div>
+        </div>
+        <button id="newChatBtn" class="primary-btn">New chat</button>
+        <div id="chatList" class="chat-list"></div>
+        <div class="sidebar-footer">
+          <div id="scopePanel" class="scope-panel hidden">
+            <div class="scope-title">Developer scope</div>
+            <div class="scope-row">
+              <label><input type="radio" name="scopeMode" value="tenant" checked /> Tenant</label>
+              <label><input type="radio" name="scopeMode" value="group" /> Group</label>
+            </div>
+            <select id="scopeValue"></select>
+            <p class="scope-help">Selection applies to retrieval only.</p>
+          </div>
+          <div class="account">
+            <div id="accountRole" class="account-role"></div>
+            <a id="adminLink" class="admin-link hidden" href="/admin">Admin Console</a>
+            <button id="logoutBtn" class="ghost-btn">Logout</button>
+          </div>
+        </div>
+      </aside>
+      <main class="chat-panel">
+        <header class="chat-header">
+          <div>
+            <h2 id="chatTitle">New chat</h2>
+            <p id="chatSubtitle">Ask about repair orders and service history.</p>
+          </div>
+          <div id="scopeStatus" class="status-chip">Tenant scope</div>
+        </header>
+        <section id="messageList" class="message-list"></section>
+        <form id="chatForm" class="composer" novalidate>
+          <textarea id="chatInput" rows="1" placeholder="Ask a question about a repair order..."></textarea>
+          <button id="sendBtn" type="button">Send</button>
+        </form>
+      </main>
+    </div>
+    <script src="/app/app.js"></script>
+  </body>
+</html>

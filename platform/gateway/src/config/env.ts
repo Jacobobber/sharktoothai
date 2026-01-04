@@ -16,6 +16,13 @@ type EnvConfig = {
   azureOpenAiApiKey: string;
   azureOpenAiEmbeddingDeployment: string;
   azureOpenAiApiVersion: string;
+  azureOpenAiChatEndpoint?: string;
+  azureOpenAiChatDeployment?: string;
+  azureOpenAiChatApiVersion?: string;
+  azureOpenAiChatApiKey?: string;
+  ragLlmEnabled: boolean;
+  ragLlmMaxTokens: number;
+  ragLlmTemperature: number;
   jwtSecret: string;
   jwtExpiresIn: string;
   devAuthBypass: boolean;
@@ -58,6 +65,15 @@ export const loadEnv = (): EnvConfig => {
     "AZURE_OPENAI_EMBEDDING_DEPLOYMENT"
   );
   const azureOpenAiApiVersion = required(process.env.AZURE_OPENAI_API_VERSION, "AZURE_OPENAI_API_VERSION");
+  const azureOpenAiChatEndpoint = process.env.AZURE_OPENAI_CHAT_ENDPOINT;
+  const azureOpenAiChatDeployment = process.env.AZURE_OPENAI_CHAT_DEPLOYMENT;
+  const azureOpenAiChatApiVersion = process.env.AZURE_OPENAI_CHAT_API_VERSION;
+  const azureOpenAiChatApiKey = process.env.AZURE_OPENAI_CHAT_API_KEY;
+  const ragLlmEnabled = (process.env.RAG_LLM_ENABLED ?? "false").toLowerCase() === "true";
+  const ragLlmMaxTokens = asInt(process.env.RAG_LLM_MAX_TOKENS, "RAG_LLM_MAX_TOKENS", 350);
+  const temperatureRaw = process.env.RAG_LLM_TEMPERATURE;
+  const parsedTemperature = temperatureRaw !== undefined ? Number(temperatureRaw) : 0.2;
+  const ragLlmTemperature = Number.isFinite(parsedTemperature) ? parsedTemperature : 0.2;
   const jwtSecret = required(process.env.JWT_SECRET, "JWT_SECRET");
   const jwtExpiresIn = required(process.env.JWT_EXPIRES_IN, "JWT_EXPIRES_IN");
   const devAuthBypass = (process.env.DEV_AUTH_BYPASS ?? "false").toLowerCase() === "true";
@@ -83,6 +99,13 @@ export const loadEnv = (): EnvConfig => {
     azureOpenAiApiKey,
     azureOpenAiEmbeddingDeployment,
     azureOpenAiApiVersion,
+    azureOpenAiChatEndpoint,
+    azureOpenAiChatDeployment,
+    azureOpenAiChatApiVersion,
+    azureOpenAiChatApiKey,
+    ragLlmEnabled,
+    ragLlmMaxTokens,
+    ragLlmTemperature,
     jwtSecret,
     jwtExpiresIn,
     devAuthBypass

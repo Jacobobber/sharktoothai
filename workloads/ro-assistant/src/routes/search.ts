@@ -5,6 +5,7 @@ import { sha256 } from "../../../../shared/utils/hash";
 import { auditLog } from "../../../../platform/gateway/src/core/audit/auditService";
 import { withRequestContext } from "../../../../platform/gateway/src/db/pg";
 import { embedQuery } from "../services/ingest/embed";
+import { resolveTenantScope } from "../services/retrieval/tenantScope";
 import { vectorSearch } from "../services/retrieval/vectorSearch";
 import { getChunksByIds } from "../services/ro/chunkRepo";
 import { getRosByIds } from "../services/ro/roRepo";
@@ -33,14 +34,20 @@ export const searchHandler: RequestHandler = async (req, res) => {
   const topK = body.top_k && body.top_k > 0 ? Math.min(body.top_k, 20) : 5;
 
   const queryEmbedding = await embedQuery(body.query);
+  const scopeTenantId = req.header("x-scope-tenant-id");
+  const scopeGroupId = req.header("x-scope-group-id");
 
   try {
     const { matches, chunks, ros } = await withRequestContext(ctx, async (client) => {
-      const matches = await vectorSearch(client, ctx, queryEmbedding, topK);
+      const scope = await resolveTenantScope(client, ctx, {
+        scopeTenantId,
+        scopeGroupId
+      });
+      const matches = await vectorSearch(client, ctx, queryEmbedding, topK, scope.tenantIds);
       const chunkIds = matches.map((m) => m.chunk_id);
-      const chunks = await getChunksByIds(client, ctx, chunkIds);
+      const chunks = await getChunksByIds(client, ctx, chunkIds, scope.tenantIds);
       const roIds = Array.from(new Set(chunks.map((c) => c.ro_id)));
-      const ros = await getRosByIds(client, ctx, roIds);
+      const ros = await getRosByIds(client, ctx, roIds, scope.tenantIds);
       return { matches, chunks, ros };
     });
 

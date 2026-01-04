@@ -1,7 +1,7 @@
 import { Router } from "express";
 import type { RequestWithContext } from "../../../../../shared/types/api";
 import { AppError } from "../../../../../shared/utils/errors";
-import { withRequestContext } from "../../db/pg";
+import { withRequestContext, type DbClient } from "../../db/pg";
 import { randomUUID } from "crypto";
 import type { Role } from "../../../../../shared/types/domain";
 
@@ -12,7 +12,7 @@ const isDealerAdminRole = (role?: Role) => role === "DEALERADMIN";
 
 const getTenantScope = async (
   ctx: RequestWithContext["context"],
-  client: any
+  client: DbClient
 ): Promise<string[] | null> => {
   if (!ctx?.tenantId || !ctx?.role) return [];
   if (isDeveloperRole(ctx.role)) return null;
@@ -236,5 +236,115 @@ adminApiRouter.get("/admin/api/pii/summary", async (req, res) => {
   } catch {
     const error = new AppError("Failed to fetch PII summary", { status: 500, code: "ADMIN_PII_SUMMARY_FAIL" });
     return res.status(error.status ?? 500).json({ error: error.code, message: error.message });
+  }
+});
+
+adminApiRouter.get("/admin/api/chats", async (req, res) => {
+  const ctx = (req as RequestWithContext).context;
+  if (!ctx?.tenantId || !ctx?.requestId || !ctx?.userId) {
+    const error = new AppError("Missing context", { status: 400, code: "CTX_MISSING" });
+    return res.status(error.status ?? 400).json({ error: error.code, message: error.message });
+  }
+
+  const limit = Math.min(Number(req.query.limit) || 50, 200);
+
+  try {
+    const data = await withRequestContext(ctx, async (client) => {
+      const scope = await getTenantScope(ctx, client);
+      const params: any[] = [];
+      let where = "";
+      if (scope !== null) {
+        params.push(scope);
+        where = "WHERE c.tenant_id = ANY($1)";
+      }
+      params.push(limit);
+      const limitParam = params.length;
+      const result = await client.query<{
+        conversation_id: string;
+        title: string;
+        created_at: string;
+        last_message_at: string;
+        tenant_id: string;
+        tenant_name: string;
+        user_id: string;
+        user_email: string;
+      }>(
+        `SELECT c.conversation_id,
+                c.title,
+                c.created_at,
+                c.last_message_at,
+                c.tenant_id,
+                t.name AS tenant_name,
+                c.user_id,
+                u.email AS user_email
+         FROM chat.conversations c
+         JOIN app.users u ON u.user_id = c.user_id
+         JOIN app.tenants t ON t.tenant_id = c.tenant_id
+         ${where}
+         ORDER BY c.last_message_at DESC
+         LIMIT $${limitParam}`,
+        params
+      );
+      return result.rows;
+    });
+    return res.status(200).json({ data });
+  } catch {
+    const error = new AppError("Failed to fetch chats", { status: 500, code: "ADMIN_CHATS_FAIL" });
+    return res.status(error.status ?? 500).json({ error: error.code, message: error.message });
+  }
+});
+
+adminApiRouter.get("/admin/api/chats/:conversation_id/messages", async (req, res) => {
+  const ctx = (req as RequestWithContext).context;
+  if (!ctx?.tenantId || !ctx?.requestId || !ctx?.userId) {
+    const error = new AppError("Missing context", { status: 400, code: "CTX_MISSING" });
+    return res.status(error.status ?? 400).json({ error: error.code, message: error.message });
+  }
+
+  const conversationId = req.params.conversation_id;
+  if (!conversationId) {
+    const error = new AppError("conversation_id required", { status: 400, code: "BAD_REQUEST" });
+    return res.status(error.status ?? 400).json({ error: error.code, message: error.message });
+  }
+
+  try {
+    const data = await withRequestContext(ctx, async (client) => {
+      const scope = await getTenantScope(ctx, client);
+      const params: any[] = [conversationId];
+      let where = "WHERE c.conversation_id = $1";
+      if (scope !== null) {
+        params.push(scope);
+        where += ` AND c.tenant_id = ANY($2)`;
+      }
+      const convo = await client.query<{ conversation_id: string }>(
+        `SELECT c.conversation_id
+         FROM chat.conversations c
+         ${where}`,
+        params
+      );
+      if (!convo.rows[0]) {
+        throw new AppError("Conversation not found", { status: 404, code: "CHAT_NOT_FOUND" });
+      }
+
+      const messages = await client.query<{
+        message_id: string;
+        role: string;
+        content: string;
+        created_at: string;
+      }>(
+        `SELECT message_id, role, content, created_at
+         FROM chat.messages
+         WHERE conversation_id = $1
+         ORDER BY created_at ASC`,
+        [conversationId]
+      );
+      return messages.rows;
+    });
+    return res.status(200).json({ data });
+  } catch (err) {
+    const status = err instanceof AppError && err.status ? err.status : 500;
+    const code = err instanceof AppError && err.code ? err.code : "ADMIN_CHAT_MESSAGES_FAIL";
+    const message = err instanceof AppError ? err.message : "Failed to fetch chat messages";
+    return res.status(status).json({ error: code, message });
   }
 });

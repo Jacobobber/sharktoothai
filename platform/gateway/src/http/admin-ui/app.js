@@ -6,11 +6,14 @@ const tenantTable = document.getElementById("tenantTable");
 const auditTable = document.getElementById("auditTable");
 const groupTable = document.getElementById("groupTable");
 const userTable = document.getElementById("userTable");
+const chatTable = document.getElementById("chatTable");
+const chatMessages = document.getElementById("chatMessages");
 
 const tenantSummary = document.getElementById("tenantSummary");
 const userSummary = document.getElementById("userSummary");
 const ingestSummary = document.getElementById("ingestSummary");
 const auditSummary = document.getElementById("auditSummary");
+const chatSummary = document.getElementById("chatSummary");
 
 const ingestBtn = document.getElementById("ingestBtn");
 const ingestFiles = document.getElementById("ingestFiles");
@@ -40,6 +43,7 @@ const SECTION_META = {
   tenants: "Tenant configuration and flags.",
   groups: "Dealer group roster and creation.",
   users: "Create and manage users per tenant.",
+  chats: "Customer chat history within scope.",
   ingest: "Upload synthetic or production XML.",
   audit: "Security and workflow audit trail."
 };
@@ -59,6 +63,7 @@ const setActiveSection = (id) => {
   if (id === "tenants") loadTenants().catch(() => {});
   if (id === "groups") loadGroups().catch(() => {});
   if (id === "users") loadUsers().catch(() => {});
+  if (id === "chats") loadChats().catch(() => {});
   if (id === "audit") loadAudit().catch(() => {});
 };
 
@@ -74,9 +79,7 @@ document.querySelectorAll(".dashboard-card").forEach((card) => {
 });
 
 const apiFetch = async (path, options = {}) => {
-  const token = localStorage.getItem("adminToken");
   const headers = { ...(options.headers ?? {}) };
-  if (token) headers.Authorization = `Bearer ${token}`;
   if (!headers["Content-Type"] && options.body) {
     headers["Content-Type"] = "application/json";
   }
@@ -90,8 +93,7 @@ const apiFetch = async (path, options = {}) => {
   if (!response.ok) {
     const message = data?.message || text || `Request failed (${response.status})`;
     if (response.status === 401) {
-      localStorage.removeItem("adminToken");
-      window.location.href = "/admin/login";
+      window.location.href = "/login?redirect=/admin";
     }
     throw new Error(message);
   }
@@ -109,9 +111,8 @@ const disableSection = (id) => {
 };
 
 logoutBtn.addEventListener("click", () => {
-  localStorage.removeItem("adminToken");
   fetch("/auth/logout", { method: "POST", credentials: "include" }).finally(() => {
-    window.location.href = "/admin/login";
+    window.location.href = "/login?redirect=/admin";
   });
 });
 
@@ -199,10 +200,18 @@ const loadIngestSummary = async () => {
 
 const refreshDashboard = async () => {
   try {
-    await Promise.all([loadTenants(), loadUsers(), loadIngestSummary(), loadAudit()]);
+    await Promise.all([loadTenants(), loadUsers(), loadIngestSummary(), loadChatSummary(), loadAudit()]);
   } catch {
     // Keep existing values if refresh fails.
   }
+};
+
+const loadChatSummary = async () => {
+  const data = await apiFetch("/admin/api/chats?limit=50");
+  if (!data.data || !Array.isArray(data.data)) {
+    throw new Error("Chat data unavailable.");
+  }
+  chatSummary.textContent = `${data.data.length} recent conversations.`;
 };
 
 const loadGroups = async () => {
@@ -284,6 +293,46 @@ const loadUsers = async () => {
     });
     userTable.appendChild(tr);
   });
+};
+
+const loadChats = async () => {
+  const data = await apiFetch("/admin/api/chats?limit=100");
+  if (!data.data || !Array.isArray(data.data)) {
+    throw new Error("Chat data unavailable.");
+  }
+  chatTable.innerHTML = "";
+  data.data.forEach((row) => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${row.title}</td>
+      <td>${row.user_email}</td>
+      <td>${row.tenant_name}</td>
+      <td>${new Date(row.last_message_at).toLocaleString()}</td>
+      <td><button data-chat="${row.conversation_id}">View</button></td>
+    `;
+    const viewBtn = tr.querySelector("button");
+    viewBtn?.addEventListener("click", async () => {
+      await loadChatMessages(row.conversation_id);
+    });
+    chatTable.appendChild(tr);
+  });
+  chatSummary.textContent = `${data.data.length} recent conversations.`;
+};
+
+const loadChatMessages = async (conversationId) => {
+  const data = await apiFetch(`/admin/api/chats/${conversationId}/messages`);
+  if (!data.data || !Array.isArray(data.data)) {
+    throw new Error("Chat message data unavailable.");
+  }
+  chatMessages.innerHTML = "";
+  data.data.forEach((row) => {
+    const line = document.createElement("div");
+    line.textContent = `${row.role}: ${row.content}`;
+    chatMessages.appendChild(line);
+  });
+  if (!data.data.length) {
+    chatMessages.textContent = "No messages yet.";
+  }
 };
 
 const appendLog = (message) => {
@@ -413,8 +462,7 @@ const loadAuthMe = async () => {
   const data = await apiFetch("/auth/me");
   currentRole = data.role;
   if (currentRole === "USER") {
-    localStorage.removeItem("adminToken");
-    window.location.href = "/admin/login";
+    window.location.href = "/login?redirect=/admin";
     return;
   }
   const allowedRoles = getAllowedRolesForCreator();
@@ -438,6 +486,7 @@ const bootstrap = async () => {
     await loadAuthMe();
     await loadTenants();
     await loadIngestSummary();
+    await loadChatSummary();
     try {
       await loadGroups();
     } catch (err) {

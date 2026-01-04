@@ -1,7 +1,7 @@
 import { Router } from "express";
 import type { RequestWithContext } from "../../../../../shared/types/api";
 import { AppError } from "../../../../../shared/utils/errors";
-import { withRequestContext } from "../../db/pg";
+import { withRequestContext, type DbClient } from "../../db/pg";
 import { randomUUID } from "crypto";
 import type { Role } from "../../../../../shared/types/domain";
 
@@ -35,7 +35,7 @@ const allowedRolesForCreator = (creatorRole: Role): Role[] => {
 
 const canManageTenant = async (
   ctx: RequestWithContext["context"],
-  client: any,
+  client: DbClient,
   targetTenantId: string
 ): Promise<boolean> => {
   if (!ctx?.tenantId || !ctx?.role) return false;
@@ -111,6 +111,9 @@ adminUsersRouter.get("/admin/api/users", async (req, res) => {
       }
 
       const targetTenant = tenantId ?? ctx.tenantId;
+      if (!targetTenant) {
+        throw new AppError("Tenant context missing", { status: 403, code: "TENANT_REQUIRED" });
+      }
       const allowed = await canManageTenant(ctx, client, targetTenant);
       if (!allowed) {
         throw new AppError("Tenant access denied", { status: 403, code: "TENANT_FORBIDDEN" });

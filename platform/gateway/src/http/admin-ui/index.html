@@ -27,6 +27,7 @@
           <button data-section="tenants">Tenant</button>
           <button data-section="groups">Groups</button>
           <button data-section="users">Users</button>
+          <button data-section="chats">Chats</button>
           <button data-section="ingest">Ingest</button>
           <button data-section="audit">Audit</button>
         </nav>
@@ -55,6 +56,10 @@
             <div class="card dashboard-card" data-target="ingest">
               <h3>Ingest Activity</h3>
               <p id="ingestSummary">Loading…</p>
+            </div>
+            <div class="card dashboard-card" data-target="chats">
+              <h3>Chats</h3>
+              <p id="chatSummary">Loading…</p>
             </div>
             <div class="card dashboard-card" data-target="audit">
               <h3>Audit Activity</h3>
@@ -136,6 +141,26 @@
               </thead>
               <tbody id="userTable"></tbody>
             </table>
+          </div>
+        </section>
+
+        <section id="chats" class="section">
+          <div class="card">
+            <h3>User Chats</h3>
+            <table>
+              <thead>
+                <tr>
+                  <th>Conversation</th>
+                  <th>User</th>
+                  <th>Tenant</th>
+                  <th>Updated</th>
+                  <th>View</th>
+                </tr>
+              </thead>
+              <tbody id="chatTable"></tbody>
+            </table>
+            <h4>Conversation Messages</h4>
+            <div id="chatMessages" class="log"></div>
           </div>
         </section>
 

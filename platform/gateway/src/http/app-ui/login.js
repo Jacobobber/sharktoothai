@@ -33,7 +33,7 @@ loginBtn.addEventListener("click", async () => {
       method: "POST",
       body: JSON.stringify({ email, password })
     });
-    const redirect = new URLSearchParams(window.location.search).get("redirect") || "/admin";
+    const redirect = new URLSearchParams(window.location.search).get("redirect") || "/app";
     window.location.href = redirect;
   } catch (err) {
     loginStatus.textContent = err.message;

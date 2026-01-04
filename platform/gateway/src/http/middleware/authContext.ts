@@ -26,10 +26,13 @@ export const authContext: RequestHandler = async (req, res, next) => {
         ?.split("=")[1]
     : undefined;
   const token = bearerToken ?? cookieToken;
+  const wantsAppLoginRedirect =
+    req.method === "GET" && (req.path.startsWith("/admin") || req.path.startsWith("/app"));
 
   if (!token) {
-    if (req.method === "GET" && req.path.startsWith("/admin")) {
-      return res.redirect(302, "/admin/login");
+    if (wantsAppLoginRedirect) {
+      const redirectTarget = req.path.startsWith("/admin") ? "/admin" : "/app";
+      return res.redirect(302, `/login?redirect=${encodeURIComponent(redirectTarget)}`);
     }
     if (env.devAuthBypass && process.env.NODE_ENV === "development") {
       ctxReq.context = {
@@ -69,8 +72,9 @@ export const authContext: RequestHandler = async (req, res, next) => {
       err instanceof AppError
         ? err
         : new AppError("Invalid auth token", { status: 401, code: "AUTH_INVALID" });
-    if (req.method === "GET" && req.path.startsWith("/admin")) {
-      return res.redirect(302, "/admin/login");
+    if (wantsAppLoginRedirect) {
+      const redirectTarget = req.path.startsWith("/admin") ? "/admin" : "/app";
+      return res.redirect(302, `/login?redirect=${encodeURIComponent(redirectTarget)}`);
     }
     void auditLog(ctxReq.context ?? ({} as any), {
       action: "AUTH_DENY",

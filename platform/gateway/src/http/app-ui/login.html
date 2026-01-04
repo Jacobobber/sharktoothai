@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Sign In - RO Assistant</title>
+    <link rel="stylesheet" href="/app/styles.css" />
+  </head>
+  <body class="login-body">
+    <div class="login-card">
+      <div class="login-brand">
+        <div class="brand-mark">RO</div>
+        <div>
+          <h1>RO Assistant</h1>
+          <p>Secure access to tenant knowledge.</p>
+        </div>
+      </div>
+      <div class="login-field">
+        <label for="loginEmail">Email</label>
+        <input id="loginEmail" type="email" placeholder="you@dealer.com" />
+      </div>
+      <div class="login-field">
+        <label for="loginPassword">Password</label>
+        <input id="loginPassword" type="password" placeholder="Enter your password" />
+      </div>
+      <button id="loginBtn" class="primary-btn">Sign in</button>
+      <p id="loginStatus" class="login-status"></p>
+    </div>
+    <script src="/login.js"></script>
+  </body>
+</html>

@@ -43,7 +43,7 @@ export const rbacGuard: RequestHandler = (req, res, next) => {
   const allowed = isAllowed(req.method, req.path, ctx.role);
   if (!allowed) {
     if (req.method === "GET" && req.path.startsWith("/admin")) {
-      return res.redirect(302, "/admin/login");
+      return res.redirect(302, "/login?redirect=/admin");
     }
     void auditLog(ctx, {
       action: "RBAC_DENY",

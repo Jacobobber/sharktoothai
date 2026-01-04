@@ -11,15 +11,18 @@ export type ChunkRecord = {
 export const getChunksByIds = async (
   client: DbClient,
   ctx: RequestContext,
-  chunkIds: string[]
+  chunkIds: string[],
+  tenantIds?: string[]
 ): Promise<ChunkRecord[]> => {
   if (!chunkIds.length) return [];
+  const scopedTenantIds = tenantIds !== undefined ? tenantIds : [ctx.tenantId];
+  if (!scopedTenantIds.length) return [];
   const { rows } = await client.query<ChunkRecord>(
     `SELECT chunk_id, chunk_text, chunk_index
             , ro_id
       FROM app.ro_chunks
-     WHERE tenant_id = $1 AND chunk_id = ANY($2::uuid[])`,
-    [ctx.tenantId, chunkIds]
+     WHERE tenant_id = ANY($1::uuid[]) AND chunk_id = ANY($2::uuid[])`,
+    [scopedTenantIds, chunkIds]
   );
   return rows;
 };

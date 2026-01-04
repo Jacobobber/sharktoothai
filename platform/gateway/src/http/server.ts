@@ -23,6 +23,9 @@ import { adminUiRouter } from "./routes/adminUi";
 import { adminApiRouter } from "./routes/adminApi";
 import { adminUsersRouter } from "./routes/adminUsers";
 import { adminUiPublicRouter } from "./routes/adminUiPublic";
+import { appUiPublicRouter } from "./routes/appUiPublic";
+import { appUiRouter } from "./routes/appUi";
+import { chatRouter } from "./routes/chat";
 
 export const createServer = () => {
   const app = express();
@@ -36,6 +39,7 @@ export const createServer = () => {
   app.use(healthRouter);
   app.use(authRouter);
   app.use(adminUiPublicRouter);
+  app.use(appUiPublicRouter);
 
   // Auth boundary starts here
   app.use(authContext);
@@ -51,6 +55,8 @@ export const createServer = () => {
   app.use(adminApiRouter);
   app.use(adminUsersRouter);
   app.use(adminUiRouter);
+  app.use(appUiRouter);
+  app.use(chatRouter);
   app.use(secretsRouter);
   app.use(policyRouter);
   app.use(workloadsRouter);
