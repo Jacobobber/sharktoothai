@@ -21,12 +21,16 @@ export const rateLimit: RequestHandler = async (req, res, next) => {
   if (req.path === "/health") return next();
 
   const ctx = (req as RequestWithContext).context;
-  if (!ctx?.tenantId || !ctx?.userId || !ctx?.requestId) {
+  if (!ctx?.userId || !ctx?.requestId) {
+    const error = new AppError("Missing context for rate limit", { status: 400, code: "CTX_MISSING" });
+    return res.status(error.status ?? 400).json({ error: error.code, message: error.message });
+  }
+  if (!ctx.tenantId && ctx.role !== "DEVELOPER") {
     const error = new AppError("Missing context for rate limit", { status: 400, code: "CTX_MISSING" });
     return res.status(error.status ?? 400).json({ error: error.code, message: error.message });
   }
 
-  const key = `${ctx.tenantId}:${ctx.userId}`;
+  const key = ctx.tenantId ? `${ctx.tenantId}:${ctx.userId}` : `dev:${ctx.userId}`;
   const now = nowSec();
   const bucket = buckets.get(key);
 

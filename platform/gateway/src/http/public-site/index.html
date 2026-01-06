@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Sharktooth AI</title>
+    <link rel="stylesheet" href="/styles.css" />
+    <script src="/public-site.js" defer></script>
+  </head>
+  <body>
+    <header class="section">
+      <div class="container">
+        <h1>AI that understands repair orders.</h1>
+        <p>
+          Sharktooth analyzes repair order data to surface profit leakage,
+          operational trends, and advisor opportunities — without exposing
+          customer PII.
+        </p>
+        <div class="actions">
+          <button type="button" class="button-primary js-request-demo">Request a Demo</button>
+          <a class="button-secondary" href="/app">Log In →</a>
+        </div>
+        <p id="demoConfirmation" class="confirmation" hidden>Thank you. We will be in touch.</p>
+      </div>
+    </header>
+
+    <main class="container">
+      <section class="section">
+        <h2>Built for dealership fixed operations</h2>
+        <div class="columns">
+          <div>
+            <h3>Service Managers</h3>
+            <ul>
+              <li>Identify high-cost repairs and repeat failures</li>
+              <li>Understand labor vs parts margin drivers</li>
+              <li>See what actually impacts CSI</li>
+            </ul>
+          </div>
+          <div>
+            <h3>Advisors</h3>
+            <ul>
+              <li>Faster answers to “what’s happening in my RO history”</li>
+              <li>Fewer manual reports</li>
+              <li>Confidence backed by real data</li>
+            </ul>
+          </div>
+          <div>
+            <h3>Dealer Leadership</h3>
+            <ul>
+              <li>Aggregated insights without raw data exposure</li>
+              <li>Consistent answers across stores</li>
+              <li>Audit-friendly analytics</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <h2>What Sharktooth analyzes</h2>
+        <ul>
+          <li>Repair order totals and cost distribution</li>
+          <li>Labor hours, rates, and efficiency signals</li>
+          <li>Parts usage, frequency, and anomalies</li>
+          <li>High-cost and outlier repairs</li>
+          <li>Trends over time by category</li>
+        </ul>
+        <p class="note">
+          Analysis is performed on structured RO data. No free-form notes or
+          customer identity fields are required.
+        </p>
+      </section>
+
+      <section class="section">
+        <h2>Security and data handling</h2>
+        <ul>
+          <li>
+            Personally identifiable information is deterministically redacted
+            prior to analysis
+          </li>
+          <li>
+            No customer names, addresses, phone numbers, or VINs are stored in
+            the AI layer
+          </li>
+          <li>Access is role-based and logged</li>
+          <li>Data is processed within isolated infrastructure</li>
+          <li>Designed to align with dealership IT security expectations</li>
+        </ul>
+        <p class="note">Security documentation available upon request.</p>
+      </section>
+
+      <section class="section">
+        <h2>Designed to fit your existing systems</h2>
+        <ul>
+          <li>Works with exported repair order data</li>
+          <li>No DMS write access required</li>
+          <li>Read-only analytical workflow</li>
+          <li>Pilot-friendly deployment</li>
+        </ul>
+      </section>
+
+      <section class="section">
+        <p class="cta-text">See what your repair orders are already telling you.</p>
+        <div class="actions">
+          <button type="button" class="button-primary js-request-demo">Request a Demo</button>
+          <a class="button-secondary" href="/app">Log In →</a>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <div class="container footer-inner">
+        <span>© Sharktooth AI</span>
+        <div class="footer-links">
+          <span>Privacy</span>
+          <span>Security</span>
+          <span>Contact</span>
+        </div>
+      </div>
+    </footer>
+
+    <div id="demoOverlay" class="modal-overlay" hidden>
+      <div
+        class="modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="demoTitle"
+      >
+        <div class="modal-header">
+          <h2 id="demoTitle">Request a Demo</h2>
+          <button type="button" class="modal-close" id="demoClose">Close</button>
+        </div>
+        <form id="demoForm" novalidate>
+          <div class="field">
+            <label for="demoFullName">Full Name</label>
+            <input id="demoFullName" name="full_name" type="text" required />
+            <span class="field-error" id="errorFullName"></span>
+          </div>
+          <div class="field">
+            <label for="demoWorkEmail">Work Email</label>
+            <input id="demoWorkEmail" name="work_email" type="email" required />
+            <span class="field-error" id="errorWorkEmail"></span>
+          </div>
+          <div class="field">
+            <label for="demoCompany">Company</label>
+            <input id="demoCompany" name="company" type="text" required />
+            <span class="field-error" id="errorCompany"></span>
+          </div>
+          <div class="field">
+            <label for="demoMessage">Message (optional)</label>
+            <textarea id="demoMessage" name="message" rows="4"></textarea>
+            <span class="field-error" id="errorMessage"></span>
+          </div>
+          <button type="submit" class="button-primary" id="demoSubmit">
+            Request a Demo
+          </button>
+        </form>
+      </div>
+    </div>
+  </body>
+</html>

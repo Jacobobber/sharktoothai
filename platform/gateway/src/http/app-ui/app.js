@@ -3,6 +3,7 @@ const messageList = document.getElementById("messageList");
 const chatTitle = document.getElementById("chatTitle");
 const chatSubtitle = document.getElementById("chatSubtitle");
 const scopeStatus = document.getElementById("scopeStatus");
+const copyChatBtn = document.getElementById("copyChatBtn");
 const chatForm = document.getElementById("chatForm");
 const chatInput = document.getElementById("chatInput");
 const sendBtn = document.getElementById("sendBtn");
@@ -17,6 +18,7 @@ let currentRole = null;
 let currentConversationId = null;
 let scopeMode = "tenant";
 let scopeData = { tenants: [], groups: [] };
+let currentMessages = [];
 
 const apiFetch = async (path, options = {}) => {
   const headers = { ...(options.headers ?? {}) };
@@ -43,6 +45,10 @@ const apiFetch = async (path, options = {}) => {
 
 const setEmptyState = () => {
   messageList.innerHTML = "";
+  currentMessages = [];
+  if (copyChatBtn) {
+    copyChatBtn.disabled = true;
+  }
   const state = document.createElement("div");
   state.className = "empty-state";
   state.textContent = "Start a new conversation to search repair orders.";
@@ -76,10 +82,22 @@ const renderMessages = (messages) => {
     setEmptyState();
     return;
   }
+  currentMessages = messages.map((msg) => ({
+    role: msg.role,
+    content: msg.content,
+    sources: msg.sources
+  }));
+  if (copyChatBtn) {
+    copyChatBtn.disabled = !currentMessages.length;
+  }
   messages.forEach((msg) => appendMessage(msg.role, msg.content, msg.sources));
 };
 
 const appendMessage = (role, content, sources) => {
+  currentMessages.push({ role, content, sources });
+  if (copyChatBtn) {
+    copyChatBtn.disabled = !currentMessages.length;
+  }
   const wrapper = document.createElement("div");
   wrapper.className = `message ${role.toLowerCase()}`;
   const bubble = document.createElement("div");
@@ -157,6 +175,57 @@ const createConversation = async () => {
     await loadConversations();
     setEmptyState();
   }
+};
+
+
+const formatConversationText = () => {
+  const lines = [];
+  lines.push(`Conversation: ${chatTitle.textContent || "Conversation"}`);
+  lines.push("");
+  currentMessages.forEach((msg) => {
+    lines.push(`${msg.role}: ${msg.content}`);
+    if (msg.sources && msg.sources.length) {
+      const labels = msg.sources
+        .map((source) => (source.ro_number ? `RO ${source.ro_number}` : "RO"))
+        .filter(Boolean);
+      if (labels.length) {
+        lines.push(`Sources: ${labels.join(", ")}`);
+      }
+    }
+    lines.push("");
+  });
+  return lines.join("\n").trim();
+};
+
+const copyConversation = async () => {
+  if (!currentMessages.length) return;
+  const text = formatConversationText();
+  const fallbackCopy = () => {
+    const textarea = document.createElement("textarea");
+    textarea.value = text;
+    textarea.setAttribute("readonly", "true");
+    textarea.style.position = "fixed";
+    textarea.style.opacity = "0";
+    document.body.appendChild(textarea);
+    textarea.select();
+    document.execCommand("copy");
+    document.body.removeChild(textarea);
+  };
+  const canUseClipboard = navigator.clipboard && window.isSecureContext;
+  if (!canUseClipboard) {
+    fallbackCopy();
+  } else {
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      fallbackCopy();
+    }
+  }
+  const original = copyChatBtn.textContent;
+  copyChatBtn.textContent = "Copied";
+  setTimeout(() => {
+    copyChatBtn.textContent = original;
+  }, 1200);
 };
 
 const sendMessage = async (message) => {
@@ -255,6 +324,12 @@ chatInput.addEventListener("keydown", (event) => {
 newChatBtn.addEventListener("click", async () => {
   await createConversation();
 });
+
+if (copyChatBtn) {
+  copyChatBtn.addEventListener("click", () => {
+    void copyConversation();
+  });
+}
 
 logoutBtn.addEventListener("click", async () => {
   await apiFetch("/auth/logout", { method: "POST" });

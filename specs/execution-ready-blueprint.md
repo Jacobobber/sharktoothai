@@ -147,8 +147,6 @@ ROUTES:
 - GET  /auth/me
 - GET  /audit
 - POST /workloads/ro/ingest
-- POST /workloads/ro/search
-- POST /workloads/ro/answer
 - GET  /workloads/ro/ro/:ro_id
 - GET  /workloads/ro/documents/:doc_id/download
 
@@ -177,7 +175,6 @@ RULES:
 --------------------------------------------------
 
 SEARCH (TECH+)
-POST /workloads/ro/search
 
 INPUT:
 { query: string, top_k?: number }
@@ -201,7 +198,6 @@ RULES:
 --------------------------------------------------
 
 ANSWER (TECH+)
-POST /workloads/ro/answer
 
 RULES:
 - LLM receives ONLY redacted excerpts

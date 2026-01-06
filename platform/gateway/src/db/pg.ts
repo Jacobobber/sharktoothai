@@ -11,7 +11,10 @@ const connectionString = process.env.DATABASE_URL;
 const pool = connectionString ? new Pool({ connectionString }) : undefined;
 
 const ensureContext = (ctx: RequestContext) => {
-  if (!ctx.requestId || !ctx.userId || !ctx.tenantId || !ctx.role) {
+  if (!ctx.requestId || !ctx.userId || !ctx.role) {
+    throw new AppError("RLS context incomplete", { status: 400, code: "RLS_CONTEXT_MISSING" });
+  }
+  if (!ctx.tenantId && ctx.role !== "DEVELOPER") {
     throw new AppError("RLS context incomplete", { status: 400, code: "RLS_CONTEXT_MISSING" });
   }
 };
@@ -19,7 +22,7 @@ const ensureContext = (ctx: RequestContext) => {
 const setRlsContext = async (client: PoolClient, ctx: RequestContext) => {
   await client.query("SELECT set_config('app.request_id', $1, true)", [ctx.requestId]);
   await client.query("SELECT set_config('app.user_id', $1, true)", [ctx.userId]);
-  await client.query("SELECT set_config('app.tenant_id', $1, true)", [ctx.tenantId]);
+  await client.query("SELECT set_config('app.tenant_id', $1, true)", [ctx.tenantId ?? ""]);
   await client.query("SELECT set_config('app.role', $1, true)", [ctx.role]);
 };
 

@@ -114,8 +114,6 @@ END SCHEMA CREATION
    - GET `/auth/me`
    - GET `/audit`
    - POST `/workloads/ro/ingest`
-   - POST `/workloads/ro/search`
-   - POST `/workloads/ro/answer`
    - GET `/workloads/ro/ro/:ro_id`
    - GET `/workloads/ro/documents/:doc_id/download`
 4) Wire audit logging (no raw content/PII) and secrets provider interface; integrate policy engine enforcing platform rules.

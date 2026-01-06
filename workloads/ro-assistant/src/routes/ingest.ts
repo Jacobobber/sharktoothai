@@ -4,6 +4,7 @@ import { AppError } from "../../../../shared/utils/errors";
 import { sha256 } from "../../../../shared/utils/hash";
 import { auditLog } from "../../../../platform/gateway/src/core/audit/auditService";
 import { runWithTransaction } from "../../../../platform/gateway/src/db/pg";
+import type { DbClient } from "../../../../platform/gateway/src/db/pg";
 import { assertTenantContext } from "../../../../platform/gateway/src/core/tenant/tenantContext";
 import { validateFileType } from "../services/ingest/validate";
 import { extractText } from "../services/ingest/extractText";
@@ -14,12 +15,22 @@ import {
   storeDocument,
   storeRepairOrder,
   ensureChunkTables,
-  storeChunksAndEmbeddings
+  storeChunksAndEmbeddings,
+  storeRepairOrderDetails
 } from "../services/ingest/store";
-import { extractPii } from "../services/pii/piiExtract";
+import { randomUUID } from "crypto";
 import { encryptPiiPayload } from "../services/pii/piiEncrypt";
-import { writePiiVaultRecord } from "../services/pii/piiVault";
+import { buildPiiHashes } from "../services/pii/piiHash";
+import { findCustomerIdByHashes, writePiiVaultRecord } from "../services/pii/piiVault";
 import { isTenantPiiEnabled } from "../services/tenant/tenantConfig";
+import {
+  assertNoPiiInSemantic,
+  buildSemanticXml,
+  routeXmlToPayloads,
+  stripXmlTags,
+  validateRoutedPayloads,
+  type SemanticEntry
+} from "../services/ingest/xmlFieldRouting";
 
 type IngestBody = {
   filename: string;
@@ -114,22 +125,64 @@ export const ingestHandler: RequestHandler = async (req, res) => {
       });
 
       const rawText = extractText(fileBuffer);
-      const piiPayload = extractPii(rawText);
-      if (piiPayload) {
-        const piiEnabled = await isTenantPiiEnabled(client, safeCtx);
+      const routed = routeXmlToPayloads(rawText);
+      assertNoPiiInSemantic(routed.semanticPayload);
+      const piiEnabled = await isTenantPiiEnabled(client, safeCtx);
+
+      validateRoutedPayloads({
+        deterministicPayload: routed.deterministicPayload,
+        piiPayload: routed.piiPayload,
+        semanticPayload: routed.semanticPayload,
+        piiEnabled
+      });
+      await validateRoNumberSequence(client, safeCtx, routed.deterministicPayload.roNumber);
+
+      if (
+        routed.deterministicPayload.roNumber &&
+        routed.deterministicPayload.roNumber !== body.ro_number
+      ) {
+        throw new AppError("RO number mismatch between payload and request", {
+          status: 400,
+          code: "RO_NUMBER_MISMATCH"
+        });
+      }
+
+      if (routed.piiPayload) {
         if (piiEnabled) {
-          const encrypted = await encryptPiiPayload(piiPayload);
+          const encrypted = await encryptPiiPayload(routed.piiPayload);
+          const hashes = buildPiiHashes(routed.piiPayload);
+          const hashList = [
+            hashes.nameHash,
+            ...hashes.emailHashes,
+            ...hashes.phoneHashes,
+            ...hashes.vinHashes,
+            ...hashes.licensePlateHashes
+          ].filter(Boolean) as string[];
+          const existingCustomerId = await findCustomerIdByHashes(client, safeCtx, hashList);
+          const customerId = existingCustomerId ?? randomUUID();
           await writePiiVaultRecord(client, safeCtx, {
             roId,
+            customerId,
             keyRef: encrypted.keyRef,
             nonce: encrypted.nonce,
-            ciphertext: encrypted.ciphertext
+            ciphertext: encrypted.ciphertext,
+            nameHash: hashes.nameHash,
+            emailHashes: hashes.emailHashes,
+            phoneHashes: hashes.phoneHashes,
+            vinHashes: hashes.vinHashes,
+            licensePlateHashes: hashes.licensePlateHashes
           });
+          await client.query(
+            `UPDATE app.repair_orders
+             SET customer_id = $2
+             WHERE ro_id = $1`,
+            [roId, customerId]
+          );
           await auditLog(safeCtx, {
             action: "PII_WRITE",
             object_type: "pii_vault",
             object_id: roId,
-            metadata: { fields: Object.keys(piiPayload) }
+            metadata: { fields: Object.keys(routed.piiPayload) }
           });
         } else {
           await auditLog(safeCtx, {
@@ -140,8 +193,16 @@ export const ingestHandler: RequestHandler = async (req, res) => {
           });
         }
       }
-      const redactedText = redactPii(rawText);
-      const chunks = chunkText(redactedText);
+
+      await storeRepairOrderDetails(client, safeCtx, roId, routed.deterministicPayload);
+
+      // Redaction is defense-in-depth; primary PII exclusion is structural.
+      const semanticXml = buildSemanticXml(routed.semanticPayload);
+      const redactedXml = redactPii(semanticXml);
+      const semanticText = stripXmlTags(redactedXml);
+      assertSemanticRedaction(routed.piiPayload, semanticText);
+
+      const chunks = chunkText(semanticText);
       const embeddings = await embedChunks(chunks);
 
       await storeChunksAndEmbeddings(client, safeCtx, { roId, chunks, embeddings });
@@ -187,4 +248,69 @@ export const ingestHandler: RequestHandler = async (req, res) => {
   }
 
   return res.status(201).json({ status: "ok" });
+};
+
+const flattenPiiValues = (piiPayload: ReturnType<typeof routeXmlToPayloads>["piiPayload"]) => {
+  if (!piiPayload) return [];
+  const values: string[] = [];
+  if (piiPayload.customerName) values.push(piiPayload.customerName);
+  if (piiPayload.emails) values.push(...piiPayload.emails);
+  if (piiPayload.phones) values.push(...piiPayload.phones);
+  if (piiPayload.vins) values.push(...piiPayload.vins);
+  if (piiPayload.licensePlates) values.push(...piiPayload.licensePlates);
+  if (piiPayload.paymentMethods) values.push(...piiPayload.paymentMethods);
+  if (piiPayload.address?.line1) values.push(piiPayload.address.line1);
+  if (piiPayload.address?.line2) values.push(piiPayload.address.line2);
+  if (piiPayload.address?.city) values.push(piiPayload.address.city);
+  if (piiPayload.address?.state) values.push(piiPayload.address.state);
+  if (piiPayload.address?.zip) values.push(piiPayload.address.zip);
+  return values.filter(Boolean);
+};
+
+const assertSemanticRedaction = (
+  piiPayload: ReturnType<typeof routeXmlToPayloads>["piiPayload"],
+  redactedText: string
+) => {
+  const haystack = redactedText.toLowerCase();
+  const values = flattenPiiValues(piiPayload);
+  const leaked = values.find((value) => haystack.includes(value.toLowerCase()));
+  if (leaked) {
+    throw new AppError("PII detected in semantic payload after redaction", {
+      status: 400,
+      code: "PII_SEMANTIC_LEAK"
+    });
+  }
+};
+
+const validateRoNumberSequence = async (
+  client: DbClient,
+  ctx: RequestWithContext["context"],
+  roNumber?: string
+) => {
+  if (!roNumber) return;
+  const mode = (process.env.RO_SEQUENCE_MODE ?? "off").toLowerCase();
+  if (mode === "off") return;
+
+  const result = await client.query<{ max_ro: string | null }>(
+    `SELECT MAX(CAST(ro_number AS bigint)) AS max_ro
+     FROM app.repair_orders
+     WHERE tenant_id = $1 AND ro_number ~ '^[0-9]{7}$'`,
+    [ctx?.tenantId]
+  );
+  const maxValue = result.rows[0]?.max_ro ? Number.parseInt(result.rows[0].max_ro, 10) : null;
+  const current = Number.parseInt(roNumber, 10);
+  if (Number.isFinite(maxValue) && current <= (maxValue as number)) {
+    if (mode === "strict") {
+      throw new AppError("RO_NUMBER is not sequential", {
+        status: 400,
+        code: "RO_SEQUENCE_INVALID"
+      });
+    }
+    await auditLog(ctx ?? {}, {
+      action: "INGEST_WARNING",
+      object_type: "repair_order",
+      object_id: roNumber,
+      metadata: { reason: "ro_sequence_non_monotonic" }
+    });
+  }
 };

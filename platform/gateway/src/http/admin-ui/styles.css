@@ -154,6 +154,8 @@ nav button:hover {
 .top-actions {
   display: flex;
   justify-content: flex-end;
+  align-items: center;
+  gap: 12px;
 }
 
 .field {
@@ -171,6 +173,21 @@ nav button:hover {
 
 .field.inline input {
   max-width: 140px;
+}
+
+.tenant-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.tenant-picker select {
+  min-width: 220px;
+  border-radius: 8px;
+  border: 1px solid #d8cbb8;
+  padding: 10px 12px;
+  font-size: 14px;
+  font-family: inherit;
 }
 
 label {

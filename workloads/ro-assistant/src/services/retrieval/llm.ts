@@ -34,7 +34,7 @@ export const generateChatAnswer = async (prompt: string): Promise<string> => {
       {
         role: "system",
         content:
-          "You are a reference-only assistant for repair orders. Use only the supplied excerpts. Cite every sentence."
+          "You are a helpful assistant for repair orders. Use the supplied excerpts as your primary source. If you infer beyond the excerpts, label it clearly as an estimate or likely scenario. Do not invent facts that contradict the excerpts. Use this response format: Summary: <one sentence> Findings: - <bullet per RO, include RO number when available> Notes: <optional, keep brief>. If there is insufficient data, respond with: No relevant records found."
       },
       { role: "user", content: prompt }
     ],

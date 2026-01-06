@@ -14,8 +14,9 @@ const getTenantScope = async (
   ctx: RequestWithContext["context"],
   client: DbClient
 ): Promise<string[] | null> => {
-  if (!ctx?.tenantId || !ctx?.role) return [];
+  if (!ctx?.role) return [];
   if (isDeveloperRole(ctx.role)) return null;
+  if (!ctx.tenantId) return [];
   if (isDealerAdminRole(ctx.role)) {
     const result = await client.query<{ group_id: string | null }>(
       `SELECT group_id FROM app.tenants WHERE tenant_id = $1`,
@@ -34,7 +35,7 @@ const getTenantScope = async (
 
 adminApiRouter.get("/admin/api/tenants", async (req, res) => {
   const ctx = (req as RequestWithContext).context;
-  if (!ctx?.tenantId || !ctx?.requestId || !ctx?.userId) {
+  if (!ctx?.requestId || !ctx?.userId || (!ctx?.tenantId && ctx?.role !== "DEVELOPER")) {
     const error = new AppError("Missing context", { status: 400, code: "CTX_MISSING" });
     return res.status(error.status ?? 400).json({ error: error.code, message: error.message });
   }
@@ -79,13 +80,17 @@ adminApiRouter.get("/admin/api/tenants", async (req, res) => {
 
 adminApiRouter.patch("/admin/api/tenants/:tenant_id", async (req, res) => {
   const ctx = (req as RequestWithContext).context;
-  if (!ctx?.tenantId || !ctx?.requestId || !ctx?.userId) {
+  if (!ctx?.requestId || !ctx?.userId || (!ctx?.tenantId && ctx?.role !== "DEVELOPER")) {
     const error = new AppError("Missing context", { status: 400, code: "CTX_MISSING" });
     return res.status(error.status ?? 400).json({ error: error.code, message: error.message });
   }
 
   const tenantId = req.params.tenant_id;
-  if (!tenantId || tenantId !== ctx.tenantId) {
+  if (!tenantId) {
+    const error = new AppError("Tenant mismatch", { status: 403, code: "TENANT_FORBIDDEN" });
+    return res.status(error.status ?? 403).json({ error: error.code, message: error.message });
+  }
+  if (ctx.role !== "DEVELOPER" && tenantId !== ctx.tenantId) {
     const error = new AppError("Tenant mismatch", { status: 403, code: "TENANT_FORBIDDEN" });
     return res.status(error.status ?? 403).json({ error: error.code, message: error.message });
   }
@@ -146,7 +151,7 @@ adminApiRouter.patch("/admin/api/tenants/:tenant_id", async (req, res) => {
 
 adminApiRouter.post("/admin/api/tenants", async (req, res) => {
   const ctx = (req as RequestWithContext).context;
-  if (!ctx?.tenantId || !ctx?.requestId || !ctx?.userId || !ctx?.role) {
+  if (!ctx?.requestId || !ctx?.userId || !ctx?.role || (!ctx?.tenantId && ctx.role !== "DEVELOPER")) {
     const error = new AppError("Missing context", { status: 400, code: "CTX_MISSING" });
     return res.status(error.status ?? 400).json({ error: error.code, message: error.message });
   }
@@ -206,7 +211,7 @@ adminApiRouter.post("/admin/api/tenants", async (req, res) => {
 
 adminApiRouter.get("/admin/api/pii/summary", async (req, res) => {
   const ctx = (req as RequestWithContext).context;
-  if (!ctx?.tenantId || !ctx?.requestId || !ctx?.userId) {
+  if (!ctx?.requestId || !ctx?.userId || (!ctx?.tenantId && ctx?.role !== "DEVELOPER")) {
     const error = new AppError("Missing context", { status: 400, code: "CTX_MISSING" });
     return res.status(error.status ?? 400).json({ error: error.code, message: error.message });
   }
@@ -241,7 +246,7 @@ adminApiRouter.get("/admin/api/pii/summary", async (req, res) => {
 
 adminApiRouter.get("/admin/api/chats", async (req, res) => {
   const ctx = (req as RequestWithContext).context;
-  if (!ctx?.tenantId || !ctx?.requestId || !ctx?.userId) {
+  if (!ctx?.requestId || !ctx?.userId || (!ctx?.tenantId && ctx?.role !== "DEVELOPER")) {
     const error = new AppError("Missing context", { status: 400, code: "CTX_MISSING" });
     return res.status(error.status ?? 400).json({ error: error.code, message: error.message });
   }
@@ -296,7 +301,7 @@ adminApiRouter.get("/admin/api/chats", async (req, res) => {
 
 adminApiRouter.get("/admin/api/chats/:conversation_id/messages", async (req, res) => {
   const ctx = (req as RequestWithContext).context;
-  if (!ctx?.tenantId || !ctx?.requestId || !ctx?.userId) {
+  if (!ctx?.requestId || !ctx?.userId || (!ctx?.tenantId && ctx?.role !== "DEVELOPER")) {
     const error = new AppError("Missing context", { status: 400, code: "CTX_MISSING" });
     return res.status(error.status ?? 400).json({ error: error.code, message: error.message });
   }

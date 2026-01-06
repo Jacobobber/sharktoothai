@@ -26,6 +26,7 @@ import { adminUiPublicRouter } from "./routes/adminUiPublic";
 import { appUiPublicRouter } from "./routes/appUiPublic";
 import { appUiRouter } from "./routes/appUi";
 import { chatRouter } from "./routes/chat";
+import { requestDemoRouter } from "./routes/requestDemo";
 
 export const createServer = () => {
   const app = express();
@@ -34,12 +35,22 @@ export const createServer = () => {
   app.use(express.json({ limit: maxUploadBytes * 2 }));
   app.use(express.urlencoded({ extended: false }));
   app.use(requestId);
+  app.use((_req, res, next) => {
+    res.setHeader(
+      "Content-Security-Policy",
+      "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; connect-src 'self'"
+    );
+    res.setHeader("X-Frame-Options", "DENY");
+    res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+    next();
+  });
 
   // Public Routes
   app.use(healthRouter);
   app.use(authRouter);
   app.use(adminUiPublicRouter);
   app.use(appUiPublicRouter);
+  app.use(requestDemoRouter);
 
   // Auth boundary starts here
   app.use(authContext);

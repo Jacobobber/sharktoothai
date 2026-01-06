@@ -1,0 +1,128 @@
+import { AppError } from "../../shared/utils/errors";
+import {
+  routeXmlToPayloads,
+  validateRoutedPayloads
+} from "../../workloads/ro-assistant/src/services/ingest/xmlFieldRouting";
+
+const baseHeader = `
+  <RO_STATUS>OPEN</RO_STATUS>
+  <OPEN_TIMESTAMP>2026-01-01T09:00:00Z</OPEN_TIMESTAMP>
+  <VIN>SYNTHVIN0000000001</VIN>
+  <CUSTOMER_FIRST_NAME>Jane</CUSTOMER_FIRST_NAME>
+  <CUSTOMER_LAST_NAME>Smith</CUSTOMER_LAST_NAME>
+  <CUSTOMER_COMPLAINT>Brake noise</CUSTOMER_COMPLAINT>
+`;
+
+const buildXml = (roNumber: string, body: string) => `<?xml version="1.0" encoding="UTF-8"?>
+<REPAIR_ORDER>
+  <RO_NUMBER>${roNumber}</RO_NUMBER>
+  ${baseHeader}
+  ${body}
+</REPAIR_ORDER>`;
+
+const runValidation = (xml: string) => {
+  const routed = routeXmlToPayloads(xml);
+  validateRoutedPayloads({
+    deterministicPayload: routed.deterministicPayload,
+    piiPayload: routed.piiPayload,
+    semanticPayload: routed.semanticPayload,
+    piiEnabled: true
+  });
+};
+
+const expectError = (label: string, fn: () => void, code: string) => {
+  try {
+    fn();
+    throw new Error(`Expected error for ${label}`);
+  } catch (err) {
+    if (!(err instanceof AppError)) {
+      throw err;
+    }
+    if (err.code !== code) {
+      throw new Error(`Unexpected error code for ${label}: ${err.code}`);
+    }
+  }
+};
+
+const validXml = buildXml(
+  "6920001",
+  `
+  <LABOR_LINE_NUMBER_1>1</LABOR_LINE_NUMBER_1>
+  <OP_CODE_1>BRK01</OP_CODE_1>
+  <OP_DESCRIPTION_1>Replace pads</OP_DESCRIPTION_1>
+  <ACTUAL_HOURS_1>1.0</ACTUAL_HOURS_1>
+  <LABOR_EXTENDED_AMOUNT_1>275.00</LABOR_EXTENDED_AMOUNT_1>
+  <PART_LINE_NUMBER_1_1>1</PART_LINE_NUMBER_1_1>
+  <PART_NUMBER_1_1>BRK-PAD</PART_NUMBER_1_1>
+  <PART_DESCRIPTION_1_1>Pad set</PART_DESCRIPTION_1_1>
+  <PART_QUANTITY_1_1>1</PART_QUANTITY_1_1>
+  <PART_UNIT_PRICE_1_1>120.00</PART_UNIT_PRICE_1_1>
+  <PART_EXTENDED_PRICE_1_1>120.00</PART_EXTENDED_PRICE_1_1>
+  <LABOR_LINE_NUMBER_2>2</LABOR_LINE_NUMBER_2>
+  <OP_CODE_2>BRK02</OP_CODE_2>
+  <OP_DESCRIPTION_2>Inspect rear brakes</OP_DESCRIPTION_2>
+  <ACTUAL_HOURS_2>2.0</ACTUAL_HOURS_2>
+  <LABOR_EXTENDED_AMOUNT_2>550.00</LABOR_EXTENDED_AMOUNT_2>
+  <LABOR_TOTAL>825.00</LABOR_TOTAL>
+  <PARTS_TOTAL>120.00</PARTS_TOTAL>
+  <TAX_TOTAL>0.00</TAX_TOTAL>
+  <DISCOUNT_TOTAL>0.00</DISCOUNT_TOTAL>
+  <GRAND_TOTAL>945.00</GRAND_TOTAL>
+  `
+);
+
+const orphanPartXml = buildXml(
+  "6920002",
+  `
+  <LABOR_LINE_NUMBER_1>1</LABOR_LINE_NUMBER_1>
+  <OP_CODE_1>BRK01</OP_CODE_1>
+  <ACTUAL_HOURS_1>1.0</ACTUAL_HOURS_1>
+  <LABOR_EXTENDED_AMOUNT_1>275.00</LABOR_EXTENDED_AMOUNT_1>
+  <PART_NUMBER_2_1>BAD</PART_NUMBER_2_1>
+  <PART_QUANTITY_2_1>1</PART_QUANTITY_2_1>
+  <PART_UNIT_PRICE_2_1>10.00</PART_UNIT_PRICE_2_1>
+  `
+);
+
+const badRateXml = buildXml(
+  "6920003",
+  `
+  <LABOR_LINE_NUMBER_1>1</LABOR_LINE_NUMBER_1>
+  <OP_CODE_1>BRK01</OP_CODE_1>
+  <ACTUAL_HOURS_1>1.0</ACTUAL_HOURS_1>
+  <LABOR_RATE_1>300.00</LABOR_RATE_1>
+  <LABOR_EXTENDED_AMOUNT_1>300.00</LABOR_EXTENDED_AMOUNT_1>
+  `
+);
+
+const badRoXml = buildXml(
+  "123",
+  `
+  <LABOR_LINE_NUMBER_1>1</LABOR_LINE_NUMBER_1>
+  <OP_CODE_1>BRK01</OP_CODE_1>
+  <ACTUAL_HOURS_1>1.0</ACTUAL_HOURS_1>
+  <LABOR_EXTENDED_AMOUNT_1>275.00</LABOR_EXTENDED_AMOUNT_1>
+  `
+);
+
+const gapLaborXml = buildXml(
+  "6920004",
+  `
+  <LABOR_LINE_NUMBER_1>1</LABOR_LINE_NUMBER_1>
+  <OP_CODE_1>BRK01</OP_CODE_1>
+  <ACTUAL_HOURS_1>1.0</ACTUAL_HOURS_1>
+  <LABOR_EXTENDED_AMOUNT_1>275.00</LABOR_EXTENDED_AMOUNT_1>
+  <LABOR_LINE_NUMBER_3>3</LABOR_LINE_NUMBER_3>
+  <OP_CODE_3>BRK03</OP_CODE_3>
+  <ACTUAL_HOURS_3>1.0</ACTUAL_HOURS_3>
+  <LABOR_EXTENDED_AMOUNT_3>275.00</LABOR_EXTENDED_AMOUNT_3>
+  `
+);
+
+runValidation(validXml);
+expectError("orphan part", () => runValidation(orphanPartXml), "PART_ORPHANED");
+expectError("labor rate", () => runValidation(badRateXml), "LABOR_RATE_INVALID");
+expectError("ro number", () => runValidation(badRoXml), "RO_NUMBER_INVALID");
+expectError("labor gap", () => runValidation(gapLaborXml), "INDEX_GAP");
+
+console.log("Line item validation tests passed.");

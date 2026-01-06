@@ -15,11 +15,12 @@ async function main() {
   await withRequestContext(ctx, async (client) => {
     const records = await client.query<{
       ro_id: string;
+      customer_id: string | null;
       key_ref: string;
       nonce: Buffer;
       ciphertext: Buffer;
     }>(
-      `SELECT ro_id, key_ref, nonce, ciphertext
+      `SELECT ro_id, customer_id, key_ref, nonce, ciphertext
        FROM app.pii_vault
        WHERE tenant_id = $1`,
       [ctx.tenantId]
@@ -34,6 +35,7 @@ async function main() {
       const encrypted = await encryptPiiPayload(payload);
       await writePiiVaultRecord(client, ctx, {
         roId: record.ro_id,
+        customerId: record.customer_id ?? null,
         keyRef: encrypted.keyRef,
         nonce: encrypted.nonce,
         ciphertext: encrypted.ciphertext

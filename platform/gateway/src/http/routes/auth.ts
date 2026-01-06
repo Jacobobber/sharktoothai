@@ -23,7 +23,7 @@ authRouter.post("/auth/login", async (req, res, next) => {
     // SECURITY DEFINER fn handles tenant-active + user-active checks server-side.
     const result = await client.query<{
       user_id: string;
-      tenant_id: string;
+      tenant_id: string | null;
       role: string;
       pass_hash: string;
       user_active: boolean;
@@ -31,7 +31,7 @@ authRouter.post("/auth/login", async (req, res, next) => {
     }>(`SELECT * FROM app.auth_login_lookup($1)`, [normalizedEmail]);
 
     const user = result.rows[0];
-    if (!user || !user.user_active || !user.tenant_active) {
+    if (!user || !user.user_active || (!user.tenant_active && user.role !== "DEVELOPER")) {
       await auditLog(req as any, { action: "AUTH_DENY", object_type: "auth", metadata: { reason: "invalid_user" } });
       return next(new AppError("Invalid credentials", { status: 401, code: "AUTH_FAILED" }));
     }
@@ -42,7 +42,7 @@ authRouter.post("/auth/login", async (req, res, next) => {
     }
     const token = await issueToken({
       userId: user.user_id,
-      tenantId: user.tenant_id,
+      tenantId: user.tenant_id ?? undefined,
       role: user.role as any
     });
     const isSecure = process.env.NODE_ENV === "production";

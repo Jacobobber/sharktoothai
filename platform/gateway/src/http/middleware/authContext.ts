@@ -60,6 +60,16 @@ export const authContext: RequestHandler = async (req, res, next) => {
       return res.status(error.status ?? 400).json({ error: error.code, message: error.message });
     }
 
+    const tenantHeader = req.header("x-tenant-id");
+    if (verified.role === "DEVELOPER" && !verified.tenantId && tenantHeader) {
+      const tenantId = tenantHeader.trim();
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(tenantId)) {
+        const error = new AppError("Invalid tenant selection", { status: 400, code: "TENANT_INVALID" });
+        return res.status(error.status ?? 400).json({ error: error.code, message: error.message });
+      }
+      verified.tenantId = tenantId;
+    }
+
     ctxReq.context = {
       ...(ctxReq.context ?? {}),
       requestId,

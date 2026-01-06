@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Security | Sharktooth AI</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header class="section">
+      <div class="container">
+        <div class="actions">
+          <span>Sharktooth</span>
+          <a class="button-secondary" href="/app">Log In →</a>
+        </div>
+      </div>
+    </header>
+
+    <main class="container">
+      <section class="section">
+        <h1>Security</h1>
+        <p>
+          Sharktooth is designed to meet the security expectations of modern dealership IT environments. The following outlines how data is handled, protected, and accessed within the platform.
+        </p>
+      </section>
+
+      <section class="section">
+        <h2>Data handling</h2>
+        <p>
+          Sharktooth processes structured repair order data for analytical purposes. The platform is designed to minimize data exposure and limit processing to what is necessary for analysis.
+        </p>
+        <ul>
+          <li>Personally identifiable information is deterministically redacted prior to analysis</li>
+          <li>Customer names, addresses, phone numbers, and VINs are not stored within the AI layer</li>
+          <li>Free-form text fields are not required for core analysis</li>
+          <li>Data is handled in a read-only analytical context</li>
+        </ul>
+      </section>
+
+      <section class="section">
+        <h2>Access control</h2>
+        <p>
+          Access to Sharktooth is restricted to authorized users and governed by role-based controls.
+        </p>
+        <ul>
+          <li>Role-based access control (RBAC) is enforced</li>
+          <li>Access events are logged</li>
+          <li>Administrative actions are restricted and auditable</li>
+          <li>Authentication is required for all application access</li>
+        </ul>
+      </section>
+
+      <section class="section">
+        <h2>Infrastructure and isolation</h2>
+        <p>
+          Sharktooth is deployed within isolated infrastructure designed to limit lateral access and reduce blast radius.
+        </p>
+        <ul>
+          <li>Application components are logically isolated</li>
+          <li>Data processing is separated from public-facing services</li>
+          <li>Network access is restricted to required paths only</li>
+          <li>Production systems are not accessible from public endpoints beyond the application interface</li>
+        </ul>
+      </section>
+
+      <section class="section">
+        <h2>Operational security</h2>
+        <p>
+          Operational controls are in place to support system integrity and traceability.
+        </p>
+        <ul>
+          <li>Changes are managed through controlled deployment processes</li>
+          <li>Errors and system events are logged</li>
+          <li>Public endpoints are rate-limited</li>
+          <li>Security-relevant events are reviewable</li>
+        </ul>
+      </section>
+
+      <section class="section">
+        <h2>Compliance posture</h2>
+        <p>
+          Sharktooth is designed to align with common dealership and enterprise security expectations.
+        </p>
+        <ul>
+          <li>Least-privilege access principles are applied</li>
+          <li>Data retention is limited to operational necessity</li>
+          <li>The platform avoids direct integration paths that would require write access to dealer systems</li>
+        </ul>
+      </section>
+
+      <section class="section">
+        <h2>Security inquiries</h2>
+        <p>
+          For security questions or documentation requests, please contact Sharktooth directly.
+        </p>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <div class="container footer-inner">
+        <span>© Sharktooth AI</span>
+        <div class="footer-links">
+          <span>Privacy</span>
+          <span>Security</span>
+          <span>Contact</span>
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>

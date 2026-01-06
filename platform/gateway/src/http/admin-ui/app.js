@@ -1,6 +1,8 @@
 const sections = document.querySelectorAll(".section");
 const navButtons = document.querySelectorAll("nav button");
 const logoutBtn = document.getElementById("logoutBtn");
+const tenantSelector = document.getElementById("tenantSelector");
+const tenantPicker = document.getElementById("tenantPicker");
 
 const tenantTable = document.getElementById("tenantTable");
 const auditTable = document.getElementById("auditTable");
@@ -37,6 +39,7 @@ const createGroupRow = document.getElementById("createGroupRow");
 const tenantCreateStatus = document.getElementById("tenantCreateStatus");
 
 let currentRole = null;
+const tenantStorageKey = "adminTenantId";
 
 const SECTION_META = {
   dashboard: "System overview and recent activity.",
@@ -71,6 +74,11 @@ navButtons.forEach((btn) => {
   btn.addEventListener("click", () => setActiveSection(btn.dataset.section));
 });
 
+tenantSelector?.addEventListener("change", () => {
+  localStorage.setItem(tenantStorageKey, tenantSelector.value);
+  refreshDashboard().catch(() => {});
+});
+
 document.querySelectorAll(".dashboard-card").forEach((card) => {
   card.addEventListener("click", () => {
     const target = card.dataset.target;
@@ -82,6 +90,12 @@ const apiFetch = async (path, options = {}) => {
   const headers = { ...(options.headers ?? {}) };
   if (!headers["Content-Type"] && options.body) {
     headers["Content-Type"] = "application/json";
+  }
+  if (currentRole === "DEVELOPER") {
+    const tenantId = tenantSelector?.value?.trim();
+    if (tenantId) {
+      headers["x-tenant-id"] = tenantId;
+    }
   }
   const response = await fetch(path, { ...options, headers, cache: "no-store", credentials: "include" });
   const contentType = response.headers.get("content-type") || "";
@@ -122,6 +136,21 @@ const loadTenants = async () => {
     throw new Error("Tenant data unavailable. Check admin token.");
   }
   tenantTable.innerHTML = "";
+  if (currentRole === "DEVELOPER" && tenantSelector) {
+    const saved = localStorage.getItem(tenantStorageKey) ?? "";
+    tenantSelector.innerHTML = "";
+    const blank = document.createElement("option");
+    blank.value = "";
+    blank.textContent = "No tenant selected";
+    tenantSelector.appendChild(blank);
+    data.data.forEach((tenant) => {
+      const option = document.createElement("option");
+      option.value = tenant.tenant_id;
+      option.textContent = `${tenant.name} (${tenant.tenant_id})`;
+      tenantSelector.appendChild(option);
+    });
+    tenantSelector.value = data.data.find((tenant) => tenant.tenant_id === saved)?.tenant_id ?? "";
+  }
   data.data.forEach((tenant) => {
     const row = document.createElement("tr");
     row.innerHTML = `
@@ -158,6 +187,8 @@ const loadTenants = async () => {
     tenantSummary.textContent = `${active.name} (${active.tenant_id}) • ${
       active.is_active ? "Active" : "Inactive"
     } • PII ${active.pii_enabled ? "Enabled" : "Disabled"}`;
+  } else {
+    tenantSummary.textContent = "No tenants available.";
   }
 };
 
@@ -236,7 +267,14 @@ const loadUsers = async () => {
   if (!data.data || !Array.isArray(data.data)) {
     throw new Error("User data unavailable.");
   }
-  userSummary.textContent = `${data.data.length} users (current tenant).`;
+  if (currentRole === "DEVELOPER") {
+    const tenantId = tenantSelector?.value?.trim();
+    userSummary.textContent = tenantId
+      ? `${data.data.length} users (selected tenant).`
+      : `${data.data.length} users (no tenant selected).`;
+  } else {
+    userSummary.textContent = `${data.data.length} users (current tenant).`;
+  }
   userTable.innerHTML = "";
   data.data.forEach((row) => {
     const tr = document.createElement("tr");
@@ -410,14 +448,18 @@ createUserBtn.addEventListener("click", async () => {
   const password = userPasswordInput.value.trim();
   const role = userRoleInput.value;
   const tenantValue = userTenantInput.value.trim();
-  if (!email || !password || !tenantValue) {
+  if (!email || !password || (role !== "DEVELOPER" && !tenantValue)) {
     alert("Email, password, and tenant ID or name required.");
     return;
   }
   try {
+    const payload = { email, password, role };
+    if (tenantValue) {
+      payload.tenant_name = tenantValue;
+    }
     await apiFetch("/admin/api/users", {
       method: "POST",
-      body: JSON.stringify({ email, password, role, tenant_name: tenantValue })
+      body: JSON.stringify(payload)
     });
     userEmailInput.value = "";
     userPasswordInput.value = "";
@@ -425,6 +467,14 @@ createUserBtn.addEventListener("click", async () => {
     await refreshDashboard();
   } catch (err) {
     alert(err.message);
+  }
+});
+
+userRoleInput.addEventListener("change", () => {
+  if (userRoleInput.value === "DEVELOPER") {
+    userTenantInput.placeholder = "Tenant ID or name (optional)";
+  } else {
+    userTenantInput.placeholder = "Tenant ID or name";
   }
 });
 
@@ -478,6 +528,13 @@ const loadAuthMe = async () => {
   if (currentRole !== "DEVELOPER") {
     if (createTenantRow) createTenantRow.style.display = "none";
     if (createGroupRow) createGroupRow.style.display = "none";
+    if (tenantPicker) tenantPicker.style.display = "none";
+    userTenantInput.placeholder = "Tenant ID or name";
+  } else if (tenantPicker) {
+    tenantPicker.style.display = "flex";
+    const saved = localStorage.getItem(tenantStorageKey) ?? "";
+    if (tenantSelector) tenantSelector.value = saved;
+    userTenantInput.placeholder = "Tenant ID or name (optional)";
   }
 };
 

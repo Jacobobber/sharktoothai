@@ -8,7 +8,7 @@ export const auditRouter = Router();
 
 auditRouter.get("/audit", async (req, res) => {
   const ctx = (req as RequestWithContext).context;
-  if (!ctx?.requestId || !ctx?.tenantId || !ctx?.userId) {
+  if (!ctx?.requestId || !ctx?.userId || (!ctx?.tenantId && ctx?.role !== "DEVELOPER")) {
     const error = new AppError("Missing context", { status: 400, code: "CTX_MISSING" });
     return res.status(error.status ?? 400).json({ error: error.code, message: error.message });
   }
@@ -22,11 +22,14 @@ auditRouter.get("/audit", async (req, res) => {
 
   try {
     const data = await withRequestContext(ctx, async (client) => {
-      const scopeResult = await client.query<{ group_id: string | null }>(
-        `SELECT group_id FROM app.tenants WHERE tenant_id = $1`,
-        [ctx.tenantId]
-      );
-      const groupId = scopeResult.rows[0]?.group_id ?? null;
+      let groupId: string | null = null;
+      if (ctx.tenantId) {
+        const scopeResult = await client.query<{ group_id: string | null }>(
+          `SELECT group_id FROM app.tenants WHERE tenant_id = $1`,
+          [ctx.tenantId]
+        );
+        groupId = scopeResult.rows[0]?.group_id ?? null;
+      }
       const isDeveloper = ctx.role === "DEVELOPER";
       const isDealerAdmin = ctx.role === "DEALERADMIN";
       const params: any[] = [];

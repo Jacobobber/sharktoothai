@@ -9,6 +9,23 @@ import { vectorSearch } from "../../../../../workloads/ro-assistant/src/services
 import { getChunksByIds } from "../../../../../workloads/ro-assistant/src/services/ro/chunkRepo";
 import { getRosByIds } from "../../../../../workloads/ro-assistant/src/services/ro/roRepo";
 import { buildCitedAnswer } from "../../../../../workloads/ro-assistant/src/services/retrieval/cite";
+import { classifyIntent } from "../../../../../workloads/ro-assistant/src/services/retrieval/intentClassifier";
+import { redactPII } from "../../../../../workloads/ro-assistant/src/services/retrieval/redactPii";
+import { fetchRoChunksByNumber } from "../../../../../workloads/ro-assistant/src/services/retrieval/roNumberLookup";
+import { parseRoNumbers } from "../../../../../workloads/ro-assistant/src/services/retrieval/roNumberLookup";
+import {
+  answerContextStore,
+  buildAnswerContext,
+  buildProvenanceAnswer
+} from "../../../../../workloads/ro-assistant/src/services/retrieval/answerContext";
+import { determineAnswerTone } from "../../../../../workloads/ro-assistant/src/services/retrieval/answerTone";
+import {
+  determineRetrievalStrategy,
+  type RetrievalStrategy,
+  applyDirectLookupFallback,
+  shouldBypassRetrieval
+} from "../../../../../workloads/ro-assistant/src/services/retrieval/retrievalStrategy";
+import { auditLog } from "../../core/audit/auditService";
 
 export const chatRouter = Router();
 
@@ -94,6 +111,38 @@ chatRouter.get("/chat/conversations/:id/messages", async (req, res) => {
   }
 });
 
+chatRouter.delete("/chat/conversations/:id", async (req, res) => {
+  try {
+    const ctx = requireContext(req as RequestWithContext);
+    const conversationId = req.params.id;
+    await runWithTransaction(ctx, async (client) => {
+      const convo = await client.query(
+        `SELECT conversation_id
+         FROM chat.conversations
+         WHERE conversation_id = $1 AND tenant_id = $2 AND user_id = $3`,
+        [conversationId, ctx.tenantId, ctx.userId]
+      );
+      if (!convo.rows[0]) {
+        throw new AppError("Conversation not found", { status: 404, code: "CHAT_NOT_FOUND" });
+      }
+      await client.query(
+        `DELETE FROM chat.messages
+         WHERE conversation_id = $1`,
+        [conversationId]
+      );
+      await client.query(
+        `DELETE FROM chat.conversations
+         WHERE conversation_id = $1`,
+        [conversationId]
+      );
+    });
+    return res.status(200).json({ ok: true });
+  } catch (err) {
+    const error = err instanceof AppError ? err : new AppError("Failed to delete conversation");
+    return res.status(error.status ?? 500).json({ error: error.code, message: error.message });
+  }
+});
+
 chatRouter.post("/chat/messages", async (req, res) => {
   try {
     const ctx = requireContext(req as RequestWithContext);
@@ -102,11 +151,16 @@ chatRouter.post("/chat/messages", async (req, res) => {
       throw new AppError("message is required", { status: 400, code: "BAD_REQUEST" });
     }
     const topK = req.body?.top_k && req.body.top_k > 0 ? Math.min(req.body.top_k, 5) : 3;
-    const queryEmbedding = await embedQuery(message);
     const scopeTenantId = req.header("x-scope-tenant-id");
     const scopeGroupId = req.header("x-scope-group-id");
+    const intent = await classifyIntent(message);
+    const redactedQuestion = redactPII(message);
+    const tone = determineAnswerTone(intent.confidence);
+    const initialStrategy = determineRetrievalStrategy(intent.intent, intent.confidence);
 
     let conversationId = req.body?.conversation_id as string | undefined;
+
+    let isNewConversation = false;
 
     await runWithTransaction(ctx, async (client) => {
       if (conversationId) {
@@ -121,6 +175,7 @@ chatRouter.post("/chat/messages", async (req, res) => {
         }
       } else {
         conversationId = randomUUID();
+        isNewConversation = true;
         await client.query(
           `INSERT INTO chat.conversations
            (conversation_id, tenant_id, user_id, title)
@@ -141,13 +196,88 @@ chatRouter.post("/chat/messages", async (req, res) => {
       throw new AppError("Conversation not found", { status: 404, code: "CHAT_NOT_FOUND" });
     }
 
-    const fetchMatches = async (embedding: number[]) =>
+    const contextKey = `${ctx.tenantId}:${ctx.userId}:${conversationId}`;
+    if (isNewConversation) {
+      answerContextStore.clearOnNewConversation(contextKey);
+    }
+
+    await auditLog(ctx, {
+      action: "INTENT_CLASSIFY",
+      object_type: "chat_query",
+      metadata: {
+        intent: intent.intent,
+        confidence: intent.confidence,
+        source: intent.source
+      }
+    });
+
+    if (shouldBypassRetrieval(intent.intent)) {
+      const prior = answerContextStore.getLastAnswerContext(contextKey);
+      if (!prior) {
+        await auditLog(ctx, {
+          action: "RETRIEVAL_STRATEGY",
+          object_type: "chat_query",
+          metadata: {
+            intent: intent.intent,
+            confidence: intent.confidence,
+            strategy: "NONE",
+            fallback: false
+          }
+        });
+        return res.status(200).json({
+          conversation_id: conversationId,
+          answer: "I don't have prior context for that question.",
+          sources: [],
+          used_llm: false
+        });
+      }
+
+      await auditLog(ctx, {
+        action: "PROVENANCE_QUERY",
+        object_type: "answer_context",
+        object_id: prior.answerId,
+        metadata: {
+          answer_id: prior.answerId
+        }
+      });
+
+      await auditLog(ctx, {
+        action: "RETRIEVAL_STRATEGY",
+        object_type: "chat_query",
+        metadata: {
+          intent: intent.intent,
+          confidence: intent.confidence,
+          strategy: "NONE",
+          fallback: false
+        }
+      });
+
+      const provenanceAnswer = buildProvenanceAnswer(prior);
+      const provenanceSources = prior.citedROs.map((ro) => ({
+        ro_number: ro.roNumber,
+        score: 1,
+        citations: ro.evidence.map((excerpt) => ({ excerpt }))
+      }));
+
+      return res.status(200).json({
+        conversation_id: conversationId,
+        answer: provenanceAnswer,
+        sources: provenanceSources,
+        used_llm: false
+      });
+    }
+
+    let retrievalStrategy: RetrievalStrategy = initialStrategy;
+    let fallbackTriggered = false;
+
+    const fetchMatches = async (embedding: number[], limitOverride?: number) =>
       withRequestContext(ctx, async (client) => {
         const scope = await resolveTenantScope(client, ctx, {
           scopeTenantId,
           scopeGroupId
         });
-        const matches = await vectorSearch(client, ctx, embedding, topK, scope.tenantIds);
+        const limit = limitOverride ?? topK;
+        const matches = await vectorSearch(client, ctx, embedding, limit, scope.tenantIds);
         const chunkIds = matches.map((m) => m.chunk_id);
         const chunks = await getChunksByIds(client, ctx, chunkIds, scope.tenantIds);
         const roIds = Array.from(new Set(chunks.map((c) => c.ro_id)));
@@ -165,7 +295,6 @@ chatRouter.post("/chat/messages", async (req, res) => {
             citations: chunk
               ? [
                   {
-                    chunk_id: chunk.chunk_id,
                     excerpt: chunk.chunk_text.slice(0, 400)
                   }
                 ]
@@ -174,31 +303,74 @@ chatRouter.post("/chat/messages", async (req, res) => {
         });
       });
 
-    let matchesWithCitations = await fetchMatches(queryEmbedding);
-    if (!matchesWithCitations.length && conversationId) {
-      const lastAssistant = await withRequestContext(ctx, async (client) => {
-        const result = await client.query<{ content: string }>(
-          `SELECT content
-           FROM chat.messages
-           WHERE conversation_id = $1
-             AND role = 'ASSISTANT'
-           ORDER BY created_at DESC
-           LIMIT 1`,
-          [conversationId]
-        );
-        return result.rows[0]?.content ?? null;
-      });
-      if (lastAssistant) {
-        const followupEmbedding = await embedQuery(
-          `${message}\nPrevious assistant summary: ${lastAssistant}`
-        );
-        matchesWithCitations = await fetchMatches(followupEmbedding);
-      }
+    let matchesWithCitations: Array<{
+      ro_number: string | null;
+      score: number;
+      citations: Array<{ excerpt: string }>;
+    }> = [];
+
+    if (retrievalStrategy === "DIRECT_LOOKUP") {
+      matchesWithCitations = await withRequestContext(ctx, (client) =>
+        fetchRoChunksByNumber(client, ctx, message, scopeTenantId, scopeGroupId)
+      );
+      const fallback = applyDirectLookupFallback(retrievalStrategy, matchesWithCitations.length);
+      retrievalStrategy = fallback.strategy;
+      fallbackTriggered = fallback.fallbackTriggered;
     }
 
-    const { answer, used_llm } = await buildCitedAnswer({
-      question: message,
+    if (retrievalStrategy === "HYBRID_SEARCH") {
+      const queryEmbedding = await embedQuery(redactedQuestion);
+      matchesWithCitations = await fetchMatches(queryEmbedding);
+      const roNumbers = parseRoNumbers(message);
+      if (roNumbers.length) {
+        const roSet = new Set(roNumbers);
+        matchesWithCitations = matchesWithCitations.filter(
+          (match) => match.ro_number && roSet.has(match.ro_number)
+        );
+      }
+    } else if (retrievalStrategy === "BROAD_VECTOR_SEARCH") {
+      const broadTopK = Math.min(Math.max(topK, 3) + 2, 6);
+      const queryEmbedding = await embedQuery(redactedQuestion);
+      matchesWithCitations = await fetchMatches(queryEmbedding, broadTopK);
+    }
+
+    await auditLog(ctx, {
+      action: "RETRIEVAL_STRATEGY",
+      object_type: "chat_query",
+      metadata: {
+        intent: intent.intent,
+        confidence: intent.confidence,
+        strategy: retrievalStrategy,
+        fallback: fallbackTriggered
+      }
+    });
+
+    const { answer, used_llm } = await buildCitedAnswer(
+      {
+        question: redactedQuestion,
+        matches: matchesWithCitations
+      },
+      tone
+    );
+
+    const answerId = randomUUID();
+    const answerContext = buildAnswerContext({
+      answerId,
+      intent: intent.intent,
+      tone,
+      retrievalStrategy,
+      createdAt: new Date().toISOString(),
       matches: matchesWithCitations
+    });
+    answerContextStore.setLastAnswerContext(contextKey, answerContext);
+
+    await auditLog(ctx, {
+      action: "ANSWER_TONE",
+      object_type: "chat_answer",
+      object_id: answerId,
+      metadata: {
+        tone
+      }
     });
 
     await runWithTransaction(ctx, async (client) => {
@@ -206,7 +378,7 @@ chatRouter.post("/chat/messages", async (req, res) => {
         `INSERT INTO chat.messages
          (message_id, conversation_id, tenant_id, user_id, role, content)
          VALUES ($1, $2, $3, $4, 'ASSISTANT', $5)`,
-        [randomUUID(), conversationId, ctx.tenantId, ctx.userId, answer]
+        [answerId, conversationId, ctx.tenantId, ctx.userId, answer]
       );
 
       const title = message.split(/\s+/).slice(0, 6).join(" ");

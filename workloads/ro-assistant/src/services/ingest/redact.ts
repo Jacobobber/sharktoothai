@@ -36,16 +36,36 @@ const tagAliases = (names: string[]) => names.flatMap((name) => [name, name.toLo
 export const redactPii = (xml: string): string => {
   let result = xml;
 
-  const nameTags = tagAliases(["customer_name", "customerName", "customer"]);
-  const emailTags = tagAliases(["email", "email_address", "emailAddress"]);
-  const phoneTags = tagAliases(["phone", "phone_number", "phoneNumber", "phones"]);
-  const vinTags = tagAliases(["vin", "vehicle_vin", "vehicleVin"]);
-  const licenseTags = tagAliases(["license_plate", "licensePlate", "plate"]);
-  const paymentTags = tagAliases(["payment_method", "paymentMethod"]);
-  const addressTags = tagAliases(["address", "address_line1", "addressLine1", "address_line2", "addressLine2"]);
-  const cityTags = tagAliases(["address_city", "addressCity", "city"]);
-  const stateTags = tagAliases(["address_state", "addressState", "state"]);
-  const zipTags = tagAliases(["address_zip", "addressZip", "zip", "postal_code", "postalCode"]);
+  const nameTags = tagAliases([
+    "customer_name",
+    "customerName",
+    "customer",
+    "CUSTOMER_FIRST_NAME",
+    "CUSTOMER_LAST_NAME"
+  ]);
+  const emailTags = tagAliases(["email", "email_address", "emailAddress", "CUSTOMER_EMAIL"]);
+  const phoneTags = tagAliases(["phone", "phone_number", "phoneNumber", "phones", "CUSTOMER_PHONE"]);
+  const vinTags = tagAliases(["vin", "vehicle_vin", "vehicleVin", "VIN"]);
+  const licenseTags = tagAliases(["license_plate", "licensePlate", "plate", "LICENSE_PLATE"]);
+  const paymentTags = tagAliases(["payment_method", "paymentMethod", "PAYMENT_METHOD"]);
+  const addressTags = tagAliases([
+    "address",
+    "address_line1",
+    "addressLine1",
+    "address_line2",
+    "addressLine2",
+    "CUSTOMER_ADDRESS_LINE1"
+  ]);
+  const cityTags = tagAliases(["address_city", "addressCity", "city", "CUSTOMER_ADDRESS_CITY"]);
+  const stateTags = tagAliases(["address_state", "addressState", "state", "CUSTOMER_ADDRESS_STATE"]);
+  const zipTags = tagAliases([
+    "address_zip",
+    "addressZip",
+    "zip",
+    "postal_code",
+    "postalCode",
+    "CUSTOMER_ADDRESS_POSTAL"
+  ]);
 
   for (const tag of nameTags) result = redactTagValues(result, tag, "[REDACTED_NAME]");
   for (const tag of emailTags) result = redactTagValues(result, tag, "[REDACTED_EMAIL]");

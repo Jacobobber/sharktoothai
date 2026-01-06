@@ -38,8 +38,9 @@ const canManageTenant = async (
   client: DbClient,
   targetTenantId: string
 ): Promise<boolean> => {
-  if (!ctx?.tenantId || !ctx?.role) return false;
+  if (!ctx?.role) return false;
   if (isDeveloperRole(ctx.role)) return true;
+  if (!ctx.tenantId) return false;
   if (ctx.role === "ADMIN") return targetTenantId === ctx.tenantId;
   if (ctx.role === "DEALERADMIN") {
     const result = await client.query<{ group_id: string | null }>(
@@ -59,7 +60,7 @@ const canManageTenant = async (
 
 adminUsersRouter.get("/admin/api/users", async (req, res) => {
   const ctx = (req as RequestWithContext).context;
-  if (!ctx?.tenantId || !ctx?.requestId || !ctx?.userId || !ctx?.role) {
+  if (!ctx?.requestId || !ctx?.userId || !ctx?.role || (!ctx?.tenantId && ctx.role !== "DEVELOPER")) {
     const error = new AppError("Missing context", { status: 400, code: "CTX_MISSING" });
     return res.status(error.status ?? 400).json({ error: error.code, message: error.message });
   }
@@ -145,13 +146,14 @@ adminUsersRouter.get("/admin/api/users", async (req, res) => {
 
 adminUsersRouter.post("/admin/api/users", async (req, res) => {
   const ctx = (req as RequestWithContext).context;
-  if (!ctx?.tenantId || !ctx?.requestId || !ctx?.userId || !ctx?.role) {
+  if (!ctx?.requestId || !ctx?.userId || !ctx?.role || (!ctx?.tenantId && ctx.role !== "DEVELOPER")) {
     const error = new AppError("Missing context", { status: 400, code: "CTX_MISSING" });
     return res.status(error.status ?? 400).json({ error: error.code, message: error.message });
   }
 
   const body = req.body as NewUserBody;
-  if (!body?.email || !body?.password || !body?.role || (!body?.tenant_id && !body?.tenant_name)) {
+  const needsTenant = body?.role !== "DEVELOPER";
+  if (!body?.email || !body?.password || !body?.role || (needsTenant && !body?.tenant_id && !body?.tenant_name)) {
     const error = new AppError("email, password, role, tenant_id or tenant_name required", {
       status: 400,
       code: "BAD_REQUEST"
@@ -175,12 +177,14 @@ adminUsersRouter.post("/admin/api/users", async (req, res) => {
         );
         resolvedTenantId = lookup.rows[0]?.tenant_id ?? null;
       }
-      if (!resolvedTenantId) {
+      if (!resolvedTenantId && body.role !== "DEVELOPER") {
         throw new AppError("Tenant not found", { status: 404, code: "TENANT_NOT_FOUND" });
       }
-      const allowed = await canManageTenant(ctx, client, resolvedTenantId);
-      if (!allowed) {
-        throw new AppError("Tenant access denied", { status: 403, code: "TENANT_FORBIDDEN" });
+      if (resolvedTenantId) {
+        const allowed = await canManageTenant(ctx, client, resolvedTenantId);
+        if (!allowed) {
+          throw new AppError("Tenant access denied", { status: 403, code: "TENANT_FORBIDDEN" });
+        }
       }
       const bcrypt = await import("bcryptjs");
       const passHash = await bcrypt.hash(body.password, 10);
@@ -210,7 +214,7 @@ adminUsersRouter.post("/admin/api/users", async (req, res) => {
 
 adminUsersRouter.patch("/admin/api/users/:user_id", async (req, res) => {
   const ctx = (req as RequestWithContext).context;
-  if (!ctx?.tenantId || !ctx?.requestId || !ctx?.userId || !ctx?.role) {
+  if (!ctx?.requestId || !ctx?.userId || !ctx?.role || (!ctx?.tenantId && ctx.role !== "DEVELOPER")) {
     const error = new AppError("Missing context", { status: 400, code: "CTX_MISSING" });
     return res.status(error.status ?? 400).json({ error: error.code, message: error.message });
   }
@@ -279,7 +283,7 @@ adminUsersRouter.patch("/admin/api/users/:user_id", async (req, res) => {
 
 adminUsersRouter.delete("/admin/api/users/:user_id", async (req, res) => {
   const ctx = (req as RequestWithContext).context;
-  if (!ctx?.tenantId || !ctx?.requestId || !ctx?.userId || !ctx?.role) {
+  if (!ctx?.requestId || !ctx?.userId || !ctx?.role || (!ctx?.tenantId && ctx.role !== "DEVELOPER")) {
     const error = new AppError("Missing context", { status: 400, code: "CTX_MISSING" });
     return res.status(error.status ?? 400).json({ error: error.code, message: error.message });
   }
@@ -315,7 +319,7 @@ adminUsersRouter.delete("/admin/api/users/:user_id", async (req, res) => {
 
 adminUsersRouter.get("/admin/api/groups", async (req, res) => {
   const ctx = (req as RequestWithContext).context;
-  if (!ctx?.tenantId || !ctx?.requestId || !ctx?.userId || !ctx?.role) {
+  if (!ctx?.requestId || !ctx?.userId || !ctx?.role || (!ctx?.tenantId && ctx.role !== "DEVELOPER")) {
     const error = new AppError("Missing context", { status: 400, code: "CTX_MISSING" });
     return res.status(error.status ?? 400).json({ error: error.code, message: error.message });
   }
@@ -347,7 +351,7 @@ adminUsersRouter.get("/admin/api/groups", async (req, res) => {
 
 adminUsersRouter.post("/admin/api/groups", async (req, res) => {
   const ctx = (req as RequestWithContext).context;
-  if (!ctx?.tenantId || !ctx?.requestId || !ctx?.userId || !ctx?.role) {
+  if (!ctx?.requestId || !ctx?.userId || !ctx?.role || (!ctx?.tenantId && ctx.role !== "DEVELOPER")) {
     const error = new AppError("Missing context", { status: 400, code: "CTX_MISSING" });
     return res.status(error.status ?? 400).json({ error: error.code, message: error.message });
   }
@@ -388,7 +392,7 @@ adminUsersRouter.post("/admin/api/groups", async (req, res) => {
 
 adminUsersRouter.patch("/admin/api/tenants/:tenant_id/group", async (req, res) => {
   const ctx = (req as RequestWithContext).context;
-  if (!ctx?.tenantId || !ctx?.requestId || !ctx?.userId || !ctx?.role) {
+  if (!ctx?.requestId || !ctx?.userId || !ctx?.role || (!ctx?.tenantId && ctx.role !== "DEVELOPER")) {
     const error = new AppError("Missing context", { status: 400, code: "CTX_MISSING" });
     return res.status(error.status ?? 400).json({ error: error.code, message: error.message });
   }

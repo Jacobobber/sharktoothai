@@ -59,6 +59,7 @@ async function main() {
       const encrypted = await encryptPiiPayload(payload);
       await writePiiVaultRecord(client, ctx, {
         roId,
+        customerId: null,
         keyRef: encrypted.keyRef,
         nonce: encrypted.nonce,
         ciphertext: encrypted.ciphertext
@@ -101,6 +102,7 @@ async function main() {
       try {
         await writePiiVaultRecord(client, ctxUser, {
           roId: roId as string,
+          customerId: null,
           keyRef: "test-key",
           nonce: Buffer.alloc(12, 1),
           ciphertext: Buffer.alloc(32, 2)
