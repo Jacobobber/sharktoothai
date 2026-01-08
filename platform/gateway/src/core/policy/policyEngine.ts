@@ -22,9 +22,7 @@ export const evaluatePolicy = async (
   }
 
   if (action === "PII_READ") {
-    if (ctx.role !== "ADMIN" && ctx.role !== "DEALERADMIN" && ctx.role !== "DEVELOPER") {
-      return { allow: false, reason: "pii_role_denied" };
-    }
+    return { allow: false, reason: "pii_read_disabled" };
   }
 
   if (action === "PII_WRITE") {

@@ -7,8 +7,10 @@ import {
 
 const run = () => {
   assert.strictEqual(determineRetrievalStrategy("lookup", 0.9), "DIRECT_LOOKUP");
-  assert.strictEqual(determineRetrievalStrategy("lookup", 0.7), "HYBRID_SEARCH");
+  assert.strictEqual(determineRetrievalStrategy("lookup", 0.7), "DIRECT_LOOKUP");
   assert.strictEqual(determineRetrievalStrategy("lookup", 0.2), "BROAD_VECTOR_SEARCH");
+  assert.strictEqual(determineRetrievalStrategy("cost_analysis", 0.9), "DIRECT_LOOKUP");
+  assert.strictEqual(determineRetrievalStrategy("frequency_analysis", 0.7), "DIRECT_LOOKUP");
   assert.strictEqual(determineRetrievalStrategy("unknown", 0.2), "BROAD_VECTOR_SEARCH");
   assert.strictEqual(determineRetrievalStrategy("procedure_summary", 0.7), "HYBRID_SEARCH");
 

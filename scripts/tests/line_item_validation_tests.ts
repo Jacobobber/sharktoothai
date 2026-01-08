@@ -44,6 +44,26 @@ const expectError = (label: string, fn: () => void, code: string) => {
   }
 };
 
+const expectUnknownFieldError = (label: string, fn: () => void, field: string) => {
+  try {
+    fn();
+    throw new Error(`Expected error for ${label}`);
+  } catch (err) {
+    if (!(err instanceof AppError)) {
+      throw err;
+    }
+    if (err.code !== "XML_FIELD_UNKNOWN") {
+      throw new Error(`Unexpected error code for ${label}: ${err.code}`);
+    }
+    if (!err.message.includes(field)) {
+      throw new Error(`Missing unknown field name for ${label}`);
+    }
+    if (!err.message.includes("field not in Schema V2 allow-list")) {
+      throw new Error(`Missing allow-list guidance for ${label}`);
+    }
+  }
+};
+
 const validXml = buildXml(
   "6920001",
   `
@@ -51,6 +71,7 @@ const validXml = buildXml(
   <OP_CODE_1>BRK01</OP_CODE_1>
   <OP_DESCRIPTION_1>Replace pads</OP_DESCRIPTION_1>
   <ACTUAL_HOURS_1>1.0</ACTUAL_HOURS_1>
+  <LABOR_RATE_1>275.00</LABOR_RATE_1>
   <LABOR_EXTENDED_AMOUNT_1>275.00</LABOR_EXTENDED_AMOUNT_1>
   <PART_LINE_NUMBER_1_1>1</PART_LINE_NUMBER_1_1>
   <PART_NUMBER_1_1>BRK-PAD</PART_NUMBER_1_1>
@@ -62,9 +83,12 @@ const validXml = buildXml(
   <OP_CODE_2>BRK02</OP_CODE_2>
   <OP_DESCRIPTION_2>Inspect rear brakes</OP_DESCRIPTION_2>
   <ACTUAL_HOURS_2>2.0</ACTUAL_HOURS_2>
+  <LABOR_RATE_2>275.00</LABOR_RATE_2>
   <LABOR_EXTENDED_AMOUNT_2>550.00</LABOR_EXTENDED_AMOUNT_2>
   <LABOR_TOTAL>825.00</LABOR_TOTAL>
   <PARTS_TOTAL>120.00</PARTS_TOTAL>
+  <SHOP_FEES>0.00</SHOP_FEES>
+  <ENVIRONMENTAL_FEES>0.00</ENVIRONMENTAL_FEES>
   <TAX_TOTAL>0.00</TAX_TOTAL>
   <DISCOUNT_TOTAL>0.00</DISCOUNT_TOTAL>
   <GRAND_TOTAL>945.00</GRAND_TOTAL>
@@ -92,6 +116,13 @@ const badRateXml = buildXml(
   <ACTUAL_HOURS_1>1.0</ACTUAL_HOURS_1>
   <LABOR_RATE_1>300.00</LABOR_RATE_1>
   <LABOR_EXTENDED_AMOUNT_1>300.00</LABOR_EXTENDED_AMOUNT_1>
+  <LABOR_TOTAL>300.00</LABOR_TOTAL>
+  <PARTS_TOTAL>0.00</PARTS_TOTAL>
+  <SHOP_FEES>0.00</SHOP_FEES>
+  <ENVIRONMENTAL_FEES>0.00</ENVIRONMENTAL_FEES>
+  <TAX_TOTAL>0.00</TAX_TOTAL>
+  <DISCOUNT_TOTAL>0.00</DISCOUNT_TOTAL>
+  <GRAND_TOTAL>300.00</GRAND_TOTAL>
   `
 );
 
@@ -101,7 +132,15 @@ const badRoXml = buildXml(
   <LABOR_LINE_NUMBER_1>1</LABOR_LINE_NUMBER_1>
   <OP_CODE_1>BRK01</OP_CODE_1>
   <ACTUAL_HOURS_1>1.0</ACTUAL_HOURS_1>
+  <LABOR_RATE_1>275.00</LABOR_RATE_1>
   <LABOR_EXTENDED_AMOUNT_1>275.00</LABOR_EXTENDED_AMOUNT_1>
+  <LABOR_TOTAL>275.00</LABOR_TOTAL>
+  <PARTS_TOTAL>0.00</PARTS_TOTAL>
+  <SHOP_FEES>0.00</SHOP_FEES>
+  <ENVIRONMENTAL_FEES>0.00</ENVIRONMENTAL_FEES>
+  <TAX_TOTAL>0.00</TAX_TOTAL>
+  <DISCOUNT_TOTAL>0.00</DISCOUNT_TOTAL>
+  <GRAND_TOTAL>275.00</GRAND_TOTAL>
   `
 );
 
@@ -111,11 +150,110 @@ const gapLaborXml = buildXml(
   <LABOR_LINE_NUMBER_1>1</LABOR_LINE_NUMBER_1>
   <OP_CODE_1>BRK01</OP_CODE_1>
   <ACTUAL_HOURS_1>1.0</ACTUAL_HOURS_1>
+  <LABOR_RATE_1>275.00</LABOR_RATE_1>
   <LABOR_EXTENDED_AMOUNT_1>275.00</LABOR_EXTENDED_AMOUNT_1>
   <LABOR_LINE_NUMBER_3>3</LABOR_LINE_NUMBER_3>
   <OP_CODE_3>BRK03</OP_CODE_3>
   <ACTUAL_HOURS_3>1.0</ACTUAL_HOURS_3>
+  <LABOR_RATE_3>275.00</LABOR_RATE_3>
   <LABOR_EXTENDED_AMOUNT_3>275.00</LABOR_EXTENDED_AMOUNT_3>
+  <LABOR_TOTAL>550.00</LABOR_TOTAL>
+  <PARTS_TOTAL>0.00</PARTS_TOTAL>
+  <SHOP_FEES>0.00</SHOP_FEES>
+  <ENVIRONMENTAL_FEES>0.00</ENVIRONMENTAL_FEES>
+  <TAX_TOTAL>0.00</TAX_TOTAL>
+  <DISCOUNT_TOTAL>0.00</DISCOUNT_TOTAL>
+  <GRAND_TOTAL>550.00</GRAND_TOTAL>
+  `
+);
+
+const unknownFieldXml = buildXml(
+  "6920005",
+  `
+  <LABOR_LINE_NUMBER_1>1</LABOR_LINE_NUMBER_1>
+  <OP_CODE_1>BRK01</OP_CODE_1>
+  <ACTUAL_HOURS_1>1.0</ACTUAL_HOURS_1>
+  <LABOR_RATE_1>275.00</LABOR_RATE_1>
+  <LABOR_EXTENDED_AMOUNT_1>275.00</LABOR_EXTENDED_AMOUNT_1>
+  <LABOR_TOTAL>275.00</LABOR_TOTAL>
+  <PARTS_TOTAL>0.00</PARTS_TOTAL>
+  <SHOP_FEES>0.00</SHOP_FEES>
+  <ENVIRONMENTAL_FEES>0.00</ENVIRONMENTAL_FEES>
+  <TAX_TOTAL>0.00</TAX_TOTAL>
+  <DISCOUNT_TOTAL>0.00</DISCOUNT_TOTAL>
+  <GRAND_TOTAL>275.00</GRAND_TOTAL>
+  <UNKNOWN_FIELD>abc</UNKNOWN_FIELD>
+  `
+);
+
+const indexedSemanticXml = buildXml(
+  "6920006",
+  `
+  <LABOR_LINE_NUMBER_1>1</LABOR_LINE_NUMBER_1>
+  <OP_CODE_1>BRK01</OP_CODE_1>
+  <OP_DESCRIPTION_1>Replace pads</OP_DESCRIPTION_1>
+  <ACTUAL_HOURS_1>1.0</ACTUAL_HOURS_1>
+  <LABOR_RATE_1>275.00</LABOR_RATE_1>
+  <LABOR_EXTENDED_AMOUNT_1>275.00</LABOR_EXTENDED_AMOUNT_1>
+  <LABOR_TOTAL>275.00</LABOR_TOTAL>
+  <PARTS_TOTAL>0.00</PARTS_TOTAL>
+  <SHOP_FEES>0.00</SHOP_FEES>
+  <ENVIRONMENTAL_FEES>0.00</ENVIRONMENTAL_FEES>
+  <TAX_TOTAL>0.00</TAX_TOTAL>
+  <DISCOUNT_TOTAL>0.00</DISCOUNT_TOTAL>
+  <GRAND_TOTAL>275.00</GRAND_TOTAL>
+  `
+);
+
+const missingRateXml = buildXml(
+  "6920007",
+  `
+  <LABOR_LINE_NUMBER_1>1</LABOR_LINE_NUMBER_1>
+  <OP_CODE_1>BRK01</OP_CODE_1>
+  <ACTUAL_HOURS_1>1.0</ACTUAL_HOURS_1>
+  <LABOR_EXTENDED_AMOUNT_1>275.00</LABOR_EXTENDED_AMOUNT_1>
+  <LABOR_TOTAL>275.00</LABOR_TOTAL>
+  <PARTS_TOTAL>0.00</PARTS_TOTAL>
+  <SHOP_FEES>0.00</SHOP_FEES>
+  <ENVIRONMENTAL_FEES>0.00</ENVIRONMENTAL_FEES>
+  <TAX_TOTAL>0.00</TAX_TOTAL>
+  <DISCOUNT_TOTAL>0.00</DISCOUNT_TOTAL>
+  <GRAND_TOTAL>275.00</GRAND_TOTAL>
+  `
+);
+
+const missingExtendedXml = buildXml(
+  "6920008",
+  `
+  <LABOR_LINE_NUMBER_1>1</LABOR_LINE_NUMBER_1>
+  <OP_CODE_1>BRK01</OP_CODE_1>
+  <ACTUAL_HOURS_1>1.0</ACTUAL_HOURS_1>
+  <LABOR_RATE_1>275.00</LABOR_RATE_1>
+  <LABOR_TOTAL>275.00</LABOR_TOTAL>
+  <PARTS_TOTAL>0.00</PARTS_TOTAL>
+  <SHOP_FEES>0.00</SHOP_FEES>
+  <ENVIRONMENTAL_FEES>0.00</ENVIRONMENTAL_FEES>
+  <TAX_TOTAL>0.00</TAX_TOTAL>
+  <DISCOUNT_TOTAL>0.00</DISCOUNT_TOTAL>
+  <GRAND_TOTAL>275.00</GRAND_TOTAL>
+  `
+);
+
+const mismatchedTotalsXml = buildXml(
+  "6920009",
+  `
+  <LABOR_LINE_NUMBER_1>1</LABOR_LINE_NUMBER_1>
+  <OP_CODE_1>BRK01</OP_CODE_1>
+  <ACTUAL_HOURS_1>1.0</ACTUAL_HOURS_1>
+  <LABOR_RATE_1>275.00</LABOR_RATE_1>
+  <LABOR_EXTENDED_AMOUNT_1>275.00</LABOR_EXTENDED_AMOUNT_1>
+  <LABOR_TOTAL>100.00</LABOR_TOTAL>
+  <PARTS_TOTAL>0.00</PARTS_TOTAL>
+  <SHOP_FEES>0.00</SHOP_FEES>
+  <ENVIRONMENTAL_FEES>0.00</ENVIRONMENTAL_FEES>
+  <TAX_TOTAL>0.00</TAX_TOTAL>
+  <DISCOUNT_TOTAL>0.00</DISCOUNT_TOTAL>
+  <GRAND_TOTAL>100.00</GRAND_TOTAL>
   `
 );
 
@@ -124,5 +262,15 @@ expectError("orphan part", () => runValidation(orphanPartXml), "PART_ORPHANED");
 expectError("labor rate", () => runValidation(badRateXml), "LABOR_RATE_INVALID");
 expectError("ro number", () => runValidation(badRoXml), "RO_NUMBER_INVALID");
 expectError("labor gap", () => runValidation(gapLaborXml), "INDEX_GAP");
+expectError("missing labor rate", () => runValidation(missingRateXml), "LABOR_RATE_MISSING");
+expectError("missing extended", () => runValidation(missingExtendedXml), "LABOR_EXTENDED_MISSING");
+expectError("mismatched totals", () => runValidation(mismatchedTotalsXml), "LABOR_TOTAL_INVALID");
+expectUnknownFieldError("unknown field", () => routeXmlToPayloads(unknownFieldXml), "UNKNOWN_FIELD");
+
+const indexedSemantic = routeXmlToPayloads(indexedSemanticXml);
+const opDescription = indexedSemantic.semanticPayload.find((entry) => entry.path === "OP_DESCRIPTION_1");
+if (!opDescription || opDescription.laborIndex !== 1) {
+  throw new Error("Indexed semantic field did not route correctly");
+}
 
 console.log("Line item validation tests passed.");

@@ -1,3 +1,7 @@
+import { AppError } from "../../../../../shared/utils/errors";
+import { parseIndexedFieldName } from "./lineItemIndexing";
+import type { SemanticEntry } from "./xmlFieldRouting";
+
 const redactTagValues = (xml: string, tagName: string, token: string): string => {
   const lower = xml.toLowerCase();
   const openPrefix = `<${tagName.toLowerCase()}`;
@@ -31,6 +35,14 @@ const redactTagValues = (xml: string, tagName: string, token: string): string =>
 };
 
 const tagAliases = (names: string[]) => names.flatMap((name) => [name, name.toLowerCase()]);
+
+const EMAIL_REGEX = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
+const PHONE_REGEX = /(\+?\d[\d\s().-]{8,}\d)/g;
+const VIN_REGEX = /\b[0-9A-HJ-NPR-Z]{17}\b/gi;
+const PERSON_REGEX =
+  /\b(customer|advisor|technician|owner|driver)\s+[a-zA-Z'-]{2,}(?:\s+[a-zA-Z'-]{2,})?\b/gi;
+const ADDRESS_REGEX =
+  /\b(address|street|st\.|avenue|ave\.|road|rd\.|boulevard|blvd\.|lane|ln\.|drive|dr\.|court|ct\.)\s+[a-zA-Z0-9'\-\s]{3,}\b/gi;
 
 // Redact explicit XML fields; avoid broad regex sweeps to reduce unintended removal.
 export const redactPii = (xml: string): string => {
@@ -79,4 +91,67 @@ export const redactPii = (xml: string): string => {
   for (const tag of zipTags) result = redactTagValues(result, tag, "[REDACTED_ZIP]");
 
   return result;
+};
+
+export const redactSemanticText = (text: string): string => {
+  let result = text;
+  result = result.replace(EMAIL_REGEX, "<EMAIL>");
+  result = result.replace(PHONE_REGEX, "<PHONE>");
+  result = result.replace(VIN_REGEX, "<VIN>");
+  result = result.replace(PERSON_REGEX, (match, role) => `${role} <PERSON>`);
+  result = result.replace(ADDRESS_REGEX, "<ADDRESS>");
+  return result;
+};
+
+export const assertNoRawPii = (text: string): void => {
+  const hits: string[] = [];
+  if (EMAIL_REGEX.test(text)) hits.push("EMAIL");
+  EMAIL_REGEX.lastIndex = 0;
+  if (PHONE_REGEX.test(text)) hits.push("PHONE");
+  PHONE_REGEX.lastIndex = 0;
+  if (VIN_REGEX.test(text)) hits.push("VIN");
+  VIN_REGEX.lastIndex = 0;
+  if (hits.length) {
+    throw new AppError(`PII_LEAKAGE_DETECTED: ${hits.join("|")}`, {
+      status: 400,
+      code: "PII_LEAKAGE_DETECTED"
+    });
+  }
+};
+
+export type LineItemSemanticRedactions = {
+  labor: Record<string, { opDescriptionRedacted?: string; technicianNotesRedacted?: string }>;
+  parts: Record<string, { partDescriptionRedacted?: string }>;
+};
+
+export const buildLineItemSemanticRedactions = (
+  semanticPayload: SemanticEntry[]
+): LineItemSemanticRedactions => {
+  const labor: LineItemSemanticRedactions["labor"] = {};
+  const parts: LineItemSemanticRedactions["parts"] = {};
+
+  for (const entry of semanticPayload) {
+    const indexed = parseIndexedFieldName(entry.path);
+    if (!indexed.isIndexed) continue;
+    const base = indexed.base;
+    const redacted = redactSemanticText(entry.text);
+    assertNoRawPii(redacted);
+
+    if (base === "OP_DESCRIPTION" && indexed.laborIndex) {
+      const key = String(indexed.laborIndex);
+      labor[key] = { ...labor[key], opDescriptionRedacted: redacted };
+      continue;
+    }
+    if (base === "TECHNICIAN_NOTES" && indexed.laborIndex) {
+      const key = String(indexed.laborIndex);
+      labor[key] = { ...labor[key], technicianNotesRedacted: redacted };
+      continue;
+    }
+    if (base === "PART_DESCRIPTION" && indexed.laborIndex && indexed.partIndex) {
+      const key = `${indexed.laborIndex}_${indexed.partIndex}`;
+      parts[key] = { partDescriptionRedacted: redacted };
+    }
+  }
+
+  return { labor, parts };
 };

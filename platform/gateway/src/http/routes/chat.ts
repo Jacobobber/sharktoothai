@@ -151,8 +151,6 @@ chatRouter.post("/chat/messages", async (req, res) => {
       throw new AppError("message is required", { status: 400, code: "BAD_REQUEST" });
     }
     const topK = req.body?.top_k && req.body.top_k > 0 ? Math.min(req.body.top_k, 5) : 3;
-    const scopeTenantId = req.header("x-scope-tenant-id");
-    const scopeGroupId = req.header("x-scope-group-id");
     const intent = await classifyIntent(message);
     const redactedQuestion = redactPII(message);
     const tone = determineAnswerTone(intent.confidence);
@@ -272,10 +270,7 @@ chatRouter.post("/chat/messages", async (req, res) => {
 
     const fetchMatches = async (embedding: number[], limitOverride?: number) =>
       withRequestContext(ctx, async (client) => {
-        const scope = await resolveTenantScope(client, ctx, {
-          scopeTenantId,
-          scopeGroupId
-        });
+          const scope = await resolveTenantScope(client, ctx);
         const limit = limitOverride ?? topK;
         const matches = await vectorSearch(client, ctx, embedding, limit, scope.tenantIds);
         const chunkIds = matches.map((m) => m.chunk_id);
@@ -311,7 +306,7 @@ chatRouter.post("/chat/messages", async (req, res) => {
 
     if (retrievalStrategy === "DIRECT_LOOKUP") {
       matchesWithCitations = await withRequestContext(ctx, (client) =>
-        fetchRoChunksByNumber(client, ctx, message, scopeTenantId, scopeGroupId)
+        fetchRoChunksByNumber(client, ctx, message)
       );
       const fallback = applyDirectLookupFallback(retrievalStrategy, matchesWithCitations.length);
       retrievalStrategy = fallback.strategy;

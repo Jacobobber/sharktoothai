@@ -9,11 +9,15 @@ import { resolveTenantScope } from "../services/retrieval/tenantScope";
 import { vectorSearch } from "../services/retrieval/vectorSearch";
 import { getChunksByIds } from "../services/ro/chunkRepo";
 import { getRosByIds } from "../services/ro/roRepo";
-import { buildCitedAnswer } from "../services/retrieval/cite";
+import { buildCitedAnswer, buildDeterministicAnswer } from "../services/retrieval/cite";
 import { classifyIntent } from "../services/retrieval/intentClassifier";
 import { redactPII } from "../services/retrieval/redactPii";
-import { fetchRoChunksByNumber } from "../services/retrieval/roNumberLookup";
 import { parseRoNumbers } from "../services/retrieval/roNumberLookup";
+import {
+  fetchDeterministicLookup,
+  fetchDeterministicCost,
+  fetchDeterministicCount
+} from "../services/retrieval/deterministicLookup";
 import {
   answerContextStore,
   buildAnswerContext,
@@ -55,9 +59,6 @@ export const answerHandler: RequestHandler = async (req, res) => {
   }
 
   const topK = body.top_k && body.top_k > 0 ? Math.min(body.top_k, 5) : 3;
-  const scopeTenantId = req.header("x-scope-tenant-id");
-  const scopeGroupId = req.header("x-scope-group-id");
-
   const intent = await classifyIntent(body.question);
   const tone = determineAnswerTone(intent.confidence);
   const initialStrategy = determineRetrievalStrategy(intent.intent, intent.confidence);
@@ -134,25 +135,84 @@ export const answerHandler: RequestHandler = async (req, res) => {
     score: number;
     citations: Array<{ excerpt: string }>;
   }> = [];
+  let deterministicResults = [] as Parameters<typeof buildDeterministicAnswer>[0]["results"];
+  let deterministicAnswer:
+    | { prompt: string; answer: string; used_llm: boolean; sources: ReturnType<typeof buildDeterministicAnswer>["sources"] }
+    | null = null;
 
   let retrievalStrategy: RetrievalStrategy = initialStrategy;
   let fallbackTriggered = false;
 
   if (retrievalStrategy === "DIRECT_LOOKUP") {
-    matchesWithCitations = await withRequestContext(ctx, (client) =>
-      fetchRoChunksByNumber(client, ctx, body.question, scopeTenantId, scopeGroupId)
-    );
+    const deterministic = await withRequestContext(ctx, async (client) => {
+      if (intent.intent === "lookup") {
+        const rows = await fetchDeterministicLookup(client, ctx, body.question);
+        return rows.map((row) => ({
+          kind: "lookup",
+          ro_number: row.ro_number,
+          ro_status: row.ro_status,
+          labor_total: row.labor_total,
+          parts_total: row.parts_total,
+          grand_total: row.grand_total,
+          open_timestamp: row.open_timestamp,
+          close_timestamp: row.close_timestamp
+        }));
+      }
+      if (intent.intent === "cost_analysis") {
+        const rows = await fetchDeterministicCost(client, ctx, body.question, topK);
+        return rows.map((row) => ({
+          kind: "cost",
+          ro_number: row.ro_number,
+          labor_total: row.labor_total,
+          parts_total: row.parts_total,
+          total: row.total
+        }));
+      }
+      if (intent.intent === "frequency_analysis") {
+        const aggregate = await fetchDeterministicCount(client, ctx, body.question);
+        return aggregate ? [{ kind: "aggregate", label: aggregate.label, value: aggregate.value }] : [];
+      }
+      return [];
+    });
+    deterministicResults = deterministic;
+    matchesWithCitations = deterministic.map((row) => ({
+      ro_number: row.kind === "aggregate" ? null : row.ro_number,
+      score: 1,
+      citations: []
+    }));
+
     const fallback = applyDirectLookupFallback(retrievalStrategy, matchesWithCitations.length);
     retrievalStrategy = fallback.strategy;
     fallbackTriggered = fallback.fallbackTriggered;
+    if (!fallbackTriggered) {
+      const redactedQuestion = redactPII(body.question);
+      deterministicAnswer = buildDeterministicAnswer({
+        question: redactedQuestion,
+        results: deterministicResults
+      });
+      await auditLog(ctx, {
+        action: "RETRIEVAL_DETERMINISTIC",
+        object_type: "answer_query",
+        metadata: {
+          intent: intent.intent,
+          results: deterministicResults.length
+        }
+      });
+    } else {
+      await auditLog(ctx, {
+        action: "RETRIEVAL_FALLBACK",
+        object_type: "answer_query",
+        metadata: {
+          intent: intent.intent,
+          reason: "deterministic_empty"
+        }
+      });
+    }
   }
 
   const fetchMatches = async (embedding: number[], limitOverride?: number) =>
     withRequestContext(ctx, async (client) => {
-      const scope = await resolveTenantScope(client, ctx, {
-        scopeTenantId,
-        scopeGroupId
-      });
+      const scope = await resolveTenantScope(client, ctx);
       const limit = limitOverride ?? topK;
       const matches = await vectorSearch(client, ctx, embedding, limit, scope.tenantIds);
       const chunkIds = matches.map((m) => m.chunk_id);
@@ -231,13 +291,29 @@ export const answerHandler: RequestHandler = async (req, res) => {
   });
 
   const redactedQuestion = redactPII(body.question);
-  const { prompt, answer, used_llm } = await buildCitedAnswer(
-    {
-      question: redactedQuestion,
-      matches: matchesWithCitations
-    },
-    tone
-  );
+  const answerPayload =
+    deterministicAnswer ??
+    (await buildCitedAnswer(
+      {
+        question: redactedQuestion,
+        matches: matchesWithCitations
+      },
+      tone
+    ));
+
+  if (deterministicAnswer?.sources?.length) {
+    matchesWithCitations = deterministicAnswer.sources.map((source) => ({
+      ro_number: source.ro_number ?? null,
+      score: 1,
+      citations: [
+        {
+          excerpt: `deterministic:${source.table}${source.ro_number ? ` ro_number=${source.ro_number}` : ""}${
+            source.fields_used?.length ? ` fields=${source.fields_used.join(",")}` : ""
+          }`
+        }
+      ]
+    }));
+  }
 
   const answerId = randomUUID();
   const answerContext = buildAnswerContext({
@@ -260,9 +336,9 @@ export const answerHandler: RequestHandler = async (req, res) => {
   });
 
   return res.status(200).json({
-    answer,
-    prompt,
+    answer: answerPayload.answer,
+    prompt: answerPayload.prompt,
     sources: matchesWithCitations,
-    used_llm
+    used_llm: answerPayload.used_llm
   });
 };

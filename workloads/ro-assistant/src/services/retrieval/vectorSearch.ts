@@ -19,9 +19,9 @@ export const vectorSearch = async (
   const vectorLiteral = `[${queryEmbedding.join(",")}]`;
   const { rows } = await client.query<VectorMatch>(
     `SELECT
-        chunk_id,
+     chunk_id,
         1 - (embedding <=> $2::vector) AS score
-     FROM app.ro_embeddings
+     FROM app.embeddings
      WHERE tenant_id = ANY($1::uuid[])
      ORDER BY embedding <=> $2::vector
      LIMIT $3`,

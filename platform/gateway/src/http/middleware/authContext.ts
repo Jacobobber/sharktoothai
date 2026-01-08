@@ -10,6 +10,17 @@ const env = loadEnv();
 
 export const authContext: RequestHandler = async (req, res, next) => {
   if (req.path === "/health") return next();
+  const hasImpersonationHeader =
+    Boolean(req.header("x-tenant-id")) ||
+    Boolean(req.header("x-scope-tenant-id")) ||
+    Boolean(req.header("x-scope-group-id"));
+  if (process.env.NODE_ENV === "production" && hasImpersonationHeader) {
+    const error = new AppError("Header-based tenant scoping is not allowed", {
+      status: 400,
+      code: "TENANT_SCOPE_FORBIDDEN"
+    });
+    return res.status(error.status ?? 400).json({ error: error.code, message: error.message });
+  }
 
   const ctxReq = req as RequestWithContext;
   const requestId = ctxReq.context?.requestId;
@@ -58,16 +69,6 @@ export const authContext: RequestHandler = async (req, res, next) => {
     if (!requestId) {
       const error = new AppError("Missing request id", { status: 400, code: "REQUEST_ID_MISSING" });
       return res.status(error.status ?? 400).json({ error: error.code, message: error.message });
-    }
-
-    const tenantHeader = req.header("x-tenant-id");
-    if (verified.role === "DEVELOPER" && !verified.tenantId && tenantHeader) {
-      const tenantId = tenantHeader.trim();
-      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(tenantId)) {
-        const error = new AppError("Invalid tenant selection", { status: 400, code: "TENANT_INVALID" });
-        return res.status(error.status ?? 400).json({ error: error.code, message: error.message });
-      }
-      verified.tenantId = tenantId;
     }
 
     ctxReq.context = {

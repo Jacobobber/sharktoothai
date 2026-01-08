@@ -2,13 +2,18 @@ import type { RequestHandler } from "express";
 import type { RequestWithContext } from "../../../../shared/types/api";
 import { AppError } from "../../../../shared/utils/errors";
 import { sha256 } from "../../../../shared/utils/hash";
+import { randomUUID } from "crypto";
 import { auditLog } from "../../../../platform/gateway/src/core/audit/auditService";
 import { runWithTransaction } from "../../../../platform/gateway/src/db/pg";
 import type { DbClient } from "../../../../platform/gateway/src/db/pg";
 import { assertTenantContext } from "../../../../platform/gateway/src/core/tenant/tenantContext";
 import { validateFileType } from "../services/ingest/validate";
 import { extractText } from "../services/ingest/extractText";
-import { redactPii } from "../services/ingest/redact";
+import {
+  redactSemanticText,
+  assertNoRawPii,
+  buildLineItemSemanticRedactions
+} from "../services/ingest/redact";
 import { chunkText } from "../services/ingest/chunk";
 import { embedChunks } from "../services/ingest/embed";
 import {
@@ -18,11 +23,10 @@ import {
   storeChunksAndEmbeddings,
   storeRepairOrderDetails
 } from "../services/ingest/store";
-import { randomUUID } from "crypto";
 import { encryptPiiPayload } from "../services/pii/piiEncrypt";
-import { buildPiiHashes } from "../services/pii/piiHash";
-import { findCustomerIdByHashes, writePiiVaultRecord } from "../services/pii/piiVault";
+import { writePiiVaultRecord } from "../services/pii/piiVault";
 import { isTenantPiiEnabled } from "../services/tenant/tenantConfig";
+import { resolveCustomerIdentity } from "../services/ingest/customerIdentity";
 import {
   assertNoPiiInSemantic,
   buildSemanticXml,
@@ -102,6 +106,69 @@ export const ingestHandler: RequestHandler = async (req, res) => {
 
   try {
     await runWithTransaction(safeCtx, async (client) => {
+      const rawText = extractText(fileBuffer);
+      const routed = routeXmlToPayloads(rawText);
+      assertNoPiiInSemantic(routed.semanticPayload);
+      const piiEnabled = await isTenantPiiEnabled(client, safeCtx);
+
+      validateRoutedPayloads({
+        deterministicPayload: routed.deterministicPayload,
+        piiPayload: routed.piiPayload,
+        semanticPayload: routed.semanticPayload,
+        piiEnabled
+      });
+      await validateRoNumberSequence(client, safeCtx, routed.deterministicPayload.roNumber);
+
+      const customerIdentity = await resolveCustomerIdentity(client, safeCtx, routed.piiPayload);
+      assertNoPiiInDeterministic(routed.piiPayload, routed.deterministicPayload);
+      if (!customerIdentity.customerUuid) {
+        throw new AppError("customer_uuid missing", { status: 400, code: "CUSTOMER_IDENTITY_MISSING" });
+      }
+
+      if (
+        routed.deterministicPayload.roNumber &&
+        routed.deterministicPayload.roNumber !== body.ro_number
+      ) {
+        throw new AppError("RO number mismatch between payload and request", {
+          status: 400,
+          code: "RO_NUMBER_MISMATCH"
+        });
+      }
+
+      if (!piiEnabled) {
+        throw new AppError("PII vaulting must be enabled for ingest", {
+          status: 400,
+          code: "PII_DISABLED"
+        });
+      }
+
+      const piiPayload = routed.piiPayload;
+      if (!piiPayload) {
+        throw new AppError("PII payload missing", { status: 400, code: "PII_MISSING" });
+      }
+      const roId = randomUUID();
+      const encrypted = await encryptPiiPayload(piiPayload);
+      // PII vaulting must precede deterministic persistence — do not reorder.
+      const vaultWriteConfirmation = await writePiiVaultRecord(client, safeCtx, {
+        roId,
+        customerUuid: customerIdentity.customerUuid,
+        keyRef: encrypted.keyRef,
+        nonce: encrypted.nonce,
+        ciphertext: encrypted.ciphertext,
+        nameHash: customerIdentity.nameHash,
+        emailHashes: customerIdentity.emailHashes,
+        phoneHashes: customerIdentity.phoneHashes,
+        vinHashes: customerIdentity.vinHashes,
+        licensePlateHashes: customerIdentity.licensePlateHashes,
+        addressHash: customerIdentity.addressHash
+      });
+      await auditLog(safeCtx, {
+        action: "PII_WRITE",
+        object_type: "pii_vault",
+        object_id: roId,
+        metadata: { fields: Object.keys(routed.piiPayload ?? {}) }
+      });
+
       await auditLog(safeCtx, {
         action: "UPLOAD_DOC",
         object_type: "document",
@@ -119,90 +186,34 @@ export const ingestHandler: RequestHandler = async (req, res) => {
         createdBy: safeCtx.userId
       });
 
-      const roId = await storeRepairOrder(client, safeCtx, {
+      await storeRepairOrder(client, safeCtx, {
         docId,
-        roNumber: body.ro_number
+        roNumber: body.ro_number,
+        customerUuid: customerIdentity.customerUuid,
+        roId,
+        vaultWriteConfirmation
       });
 
-      const rawText = extractText(fileBuffer);
-      const routed = routeXmlToPayloads(rawText);
-      assertNoPiiInSemantic(routed.semanticPayload);
-      const piiEnabled = await isTenantPiiEnabled(client, safeCtx);
-
-      validateRoutedPayloads({
-        deterministicPayload: routed.deterministicPayload,
-        piiPayload: routed.piiPayload,
-        semanticPayload: routed.semanticPayload,
-        piiEnabled
-      });
-      await validateRoNumberSequence(client, safeCtx, routed.deterministicPayload.roNumber);
-
-      if (
-        routed.deterministicPayload.roNumber &&
-        routed.deterministicPayload.roNumber !== body.ro_number
-      ) {
-        throw new AppError("RO number mismatch between payload and request", {
-          status: 400,
-          code: "RO_NUMBER_MISMATCH"
-        });
-      }
-
-      if (routed.piiPayload) {
-        if (piiEnabled) {
-          const encrypted = await encryptPiiPayload(routed.piiPayload);
-          const hashes = buildPiiHashes(routed.piiPayload);
-          const hashList = [
-            hashes.nameHash,
-            ...hashes.emailHashes,
-            ...hashes.phoneHashes,
-            ...hashes.vinHashes,
-            ...hashes.licensePlateHashes
-          ].filter(Boolean) as string[];
-          const existingCustomerId = await findCustomerIdByHashes(client, safeCtx, hashList);
-          const customerId = existingCustomerId ?? randomUUID();
-          await writePiiVaultRecord(client, safeCtx, {
-            roId,
-            customerId,
-            keyRef: encrypted.keyRef,
-            nonce: encrypted.nonce,
-            ciphertext: encrypted.ciphertext,
-            nameHash: hashes.nameHash,
-            emailHashes: hashes.emailHashes,
-            phoneHashes: hashes.phoneHashes,
-            vinHashes: hashes.vinHashes,
-            licensePlateHashes: hashes.licensePlateHashes
-          });
-          await client.query(
-            `UPDATE app.repair_orders
-             SET customer_id = $2
-             WHERE ro_id = $1`,
-            [roId, customerId]
-          );
-          await auditLog(safeCtx, {
-            action: "PII_WRITE",
-            object_type: "pii_vault",
-            object_id: roId,
-            metadata: { fields: Object.keys(routed.piiPayload) }
-          });
-        } else {
-          await auditLog(safeCtx, {
-            action: "PII_WRITE_DENIED",
-            object_type: "pii_vault",
-            object_id: roId,
-            metadata: { reason: "pii_not_enabled" }
-          });
-        }
-      }
-
-      await storeRepairOrderDetails(client, safeCtx, roId, routed.deterministicPayload);
+      const lineItemSemanticRedactions = buildLineItemSemanticRedactions(routed.semanticPayload);
+      await storeRepairOrderDetails(
+        client,
+        safeCtx,
+        roId,
+        routed.deterministicPayload,
+        customerIdentity.customerUuid,
+        vaultWriteConfirmation,
+        lineItemSemanticRedactions
+      );
 
       // Redaction is defense-in-depth; primary PII exclusion is structural.
       const semanticXml = buildSemanticXml(routed.semanticPayload);
-      const redactedXml = redactPii(semanticXml);
-      const semanticText = stripXmlTags(redactedXml);
-      assertSemanticRedaction(routed.piiPayload, semanticText);
+      const semanticText = stripXmlTags(semanticXml);
+      const redactedText = redactSemanticText(semanticText);
+      assertSemanticRedaction(routed.piiPayload, redactedText);
+      assertNoRawPii(redactedText);
+      assertNoCustomerUuidInSemantic(redactedText, customerIdentity.customerUuid);
 
-      const chunks = chunkText(semanticText);
+      const chunks = chunkText(redactedText);
       const embeddings = await embedChunks(chunks);
 
       await storeChunksAndEmbeddings(client, safeCtx, { roId, chunks, embeddings });
@@ -278,6 +289,31 @@ const assertSemanticRedaction = (
     throw new AppError("PII detected in semantic payload after redaction", {
       status: 400,
       code: "PII_SEMANTIC_LEAK"
+    });
+  }
+};
+
+const assertNoPiiInDeterministic = (
+  piiPayload: ReturnType<typeof routeXmlToPayloads>["piiPayload"],
+  payload: ReturnType<typeof routeXmlToPayloads>["deterministicPayload"]
+) => {
+  if (!piiPayload) return;
+  const haystack = JSON.stringify(payload).toLowerCase();
+  const values = flattenPiiValues(piiPayload);
+  const leaked = values.find((value) => haystack.includes(value.toLowerCase()));
+  if (leaked) {
+    throw new AppError("PII detected in deterministic payload", {
+      status: 400,
+      code: "PII_DETERMINISTIC_LEAK"
+    });
+  }
+};
+
+const assertNoCustomerUuidInSemantic = (semanticText: string, customerUuid: string) => {
+  if (semanticText.toLowerCase().includes(customerUuid.toLowerCase())) {
+    throw new AppError("customer_uuid leaked into semantic payload", {
+      status: 400,
+      code: "CUSTOMER_UUID_SEMANTIC_LEAK"
     });
   }
 };

@@ -3,10 +3,11 @@ dotenv.config();
 import { withRequestContext } from "../../platform/gateway/src/db/pg";
 import { sha256 } from "../../shared/utils/hash";
 import { storeDocument, storeRepairOrder } from "../../workloads/ro-assistant/src/services/ingest/store";
-import { decryptPiiPayload, encryptPiiPayload } from "../../workloads/ro-assistant/src/services/pii/piiEncrypt";
+import { encryptPiiPayload } from "../../workloads/ro-assistant/src/services/pii/piiEncrypt";
 import type { PiiPayload } from "../../workloads/ro-assistant/src/services/pii/piiExtract";
-import { writePiiVaultRecord, readPiiVaultRecord } from "../../workloads/ro-assistant/src/services/pii/piiVault";
+import { writePiiVaultRecord } from "../../workloads/ro-assistant/src/services/pii/piiVault";
 import { isTenantPiiEnabled } from "../../workloads/ro-assistant/src/services/tenant/tenantConfig";
+import { randomUUID } from "crypto";
 
 const ctx = {
   requestId: "pii-test",
@@ -46,6 +47,16 @@ async function main() {
         process.exit(1);
       }
 
+      const customerUuid = randomUUID();
+      const roId = randomUUID();
+      const encrypted = await encryptPiiPayload(payload);
+      const vaultWriteConfirmation = await writePiiVaultRecord(client, ctx, {
+        roId,
+        customerUuid,
+        keyRef: encrypted.keyRef,
+        nonce: encrypted.nonce,
+        ciphertext: encrypted.ciphertext
+      });
       const seed = `${ctx.requestId}-${Date.now()}`;
       const docId = await storeDocument(client, ctx, {
         filename: "pii-test.txt",
@@ -54,15 +65,12 @@ async function main() {
         storagePath: `ingest/${ctx.tenantId}/${seed}`,
         createdBy: ctx.userId
       });
-      const roId = await storeRepairOrder(client, ctx, { docId, roNumber: `PII-TEST-${Date.now()}` });
-
-      const encrypted = await encryptPiiPayload(payload);
-      await writePiiVaultRecord(client, ctx, {
+      await storeRepairOrder(client, ctx, {
+        docId,
+        roNumber: `PII-TEST-${Date.now()}`,
+        customerUuid,
         roId,
-        customerId: null,
-        keyRef: encrypted.keyRef,
-        nonce: encrypted.nonce,
-        ciphertext: encrypted.ciphertext
+        vaultWriteConfirmation
       });
       return { docId, roId };
     });
@@ -71,27 +79,14 @@ async function main() {
     roId = created.roId;
 
     await withRequestContext(ctx, async (client) => {
-      const record = await readPiiVaultRecord(client, ctx, roId as string);
-      if (!record) {
-        console.error("PII vault record missing");
-        process.exit(1);
-      }
-      const decrypted = await decryptPiiPayload({
-        keyRef: record.keyRef,
-        nonce: record.nonce,
-        ciphertext: record.ciphertext
-      });
-      if (!decrypted.emails?.includes("test@example.com")) {
-        console.error("PII vault decrypt failed");
-        process.exit(1);
-      }
-    });
-
-    const ctxDeveloper = { ...ctx, role: "DEVELOPER" as const };
-    await withRequestContext(ctxDeveloper, async (client) => {
-      const record = await readPiiVaultRecord(client, ctxDeveloper, roId as string);
-      if (!record) {
-        console.error("PII vault record missing for DEVELOPER");
+      const record = await client.query<{ ciphertext: Buffer }>(
+        `SELECT ciphertext
+         FROM app.pii_vault
+         WHERE tenant_id = $1 AND ro_id = $2`,
+        [ctx.tenantId, roId as string]
+      );
+      if (!record.rows[0]?.ciphertext || record.rows[0].ciphertext.length === 0) {
+        console.error("PII vault ciphertext missing");
         process.exit(1);
       }
     });
@@ -102,7 +97,7 @@ async function main() {
       try {
         await writePiiVaultRecord(client, ctxUser, {
           roId: roId as string,
-          customerId: null,
+          customerUuid: randomUUID(),
           keyRef: "test-key",
           nonce: Buffer.alloc(12, 1),
           ciphertext: Buffer.alloc(32, 2)
@@ -116,28 +111,15 @@ async function main() {
       process.exit(1);
     }
 
-    denied = false;
-    await withRequestContext(ctxUser, async (client) => {
-      try {
-        await readPiiVaultRecord(client, ctxUser, roId as string);
-      } catch {
-        denied = true;
-      }
-    });
-    if (!denied) {
-      console.error("PII read was not denied for USER role");
-      process.exit(1);
-    }
-
     await withRequestContext(ctx, async (client) => {
-      const chunks = await client.query("SELECT count(*) FROM app.ro_chunks WHERE tenant_id = $1 AND ro_id = $2", [
+      const chunks = await client.query("SELECT count(*) FROM app.chunks WHERE tenant_id = $1 AND ro_id = $2", [
         ctx.tenantId,
         roId as string
       ]);
       const embeds = await client.query(
-        `SELECT count(*) FROM app.ro_embeddings
+        `SELECT count(*) FROM app.embeddings
            WHERE tenant_id = $1
-             AND chunk_id IN (SELECT chunk_id FROM app.ro_chunks WHERE tenant_id = $1 AND ro_id = $2)`,
+             AND chunk_id IN (SELECT chunk_id FROM app.chunks WHERE tenant_id = $1 AND ro_id = $2)`,
         [ctx.tenantId, roId as string]
       );
       if (Number(chunks.rows[0].count) !== 0 || Number(embeds.rows[0].count) !== 0) {

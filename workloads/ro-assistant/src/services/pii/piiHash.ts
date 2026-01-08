@@ -26,6 +26,7 @@ export type PiiHashes = {
   phoneHashes: string[];
   vinHashes: string[];
   licensePlateHashes: string[];
+  addressHash?: string;
 };
 
 export const buildPiiHashes = (input: {
@@ -34,6 +35,13 @@ export const buildPiiHashes = (input: {
   phones?: string[];
   vins?: string[];
   licensePlates?: string[];
+  address?: {
+    line1?: string;
+    line2?: string;
+    city?: string;
+    state?: string;
+    zip?: string;
+  };
 }): PiiHashes => {
   const nameHash = input.customerName ? hashValue(normalizeValue(input.customerName)) : undefined;
   const emailHashes = (input.emails ?? []).map((email) => hashValue(normalizeValue(email)));
@@ -45,12 +53,24 @@ export const buildPiiHashes = (input: {
   const licensePlateHashes = (input.licensePlates ?? []).map((plate) =>
     hashValue(normalizeLicensePlate(plate))
   );
+  const addressParts = [
+    input.address?.line1,
+    input.address?.line2,
+    input.address?.city,
+    input.address?.state,
+    input.address?.zip
+  ]
+    .map((part) => (part ?? "").trim())
+    .filter(Boolean);
+  const addressHash =
+    addressParts.length > 0 ? hashValue(normalizeValue(addressParts.join("|"))) : undefined;
 
   return {
     nameHash,
     emailHashes,
     phoneHashes,
     vinHashes,
-    licensePlateHashes
+    licensePlateHashes,
+    addressHash
   };
 };

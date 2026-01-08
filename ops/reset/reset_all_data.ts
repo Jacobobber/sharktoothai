@@ -93,8 +93,8 @@ const assertNonProduction = (hostname: string) => {
 };
 
 const TABLES: TableSpec[] = [
-  { name: "app.ro_embeddings" },
-  { name: "app.ro_chunks" },
+  { name: "app.embeddings" },
+  { name: "app.chunks" },
   { name: "app.ro_parts_lines" },
   { name: "app.ro_labor_lines" },
   { name: "app.ro_deterministic_v2" },
@@ -293,8 +293,8 @@ const main = async () => {
       "app.users",
       "app.repair_orders",
       "app.ro_deterministic_v2",
-      "app.ro_chunks",
-      "app.ro_embeddings",
+      "app.chunks",
+      "app.embeddings",
       "app.pii_vault"
     ];
 

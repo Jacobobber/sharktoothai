@@ -14,9 +14,7 @@ export const parseRoNumbers = (input: string): string[] => {
 export const fetchRoChunksByNumber = async (
   client: DbClient,
   ctx: RequestContext,
-  input: string,
-  scopeTenantId?: string | null,
-  scopeGroupId?: string | null
+  input: string
 ): Promise<
   Array<{
     ro_number: string | null;
@@ -27,10 +25,7 @@ export const fetchRoChunksByNumber = async (
   const roNumbers = parseRoNumbers(input);
   if (!roNumbers.length) return [];
 
-  const scope = await resolveTenantScope(client, ctx, {
-    scopeTenantId,
-    scopeGroupId
-  });
+  const scope = await resolveTenantScope(client, ctx);
 
   const ros = await client.query<{ ro_id: string; ro_number: string }>(
     `SELECT ro_id, ro_number
@@ -46,7 +41,7 @@ export const fetchRoChunksByNumber = async (
 
   const chunks = await client.query<{ chunk_text: string; ro_id: string }>(
     `SELECT chunk_text, ro_id
-     FROM app.ro_chunks
+     FROM app.chunks
      WHERE tenant_id = ANY($1::uuid[])
        AND ro_id = ANY($2::uuid[])
      ORDER BY ro_id, chunk_index`,

@@ -1,6 +1,7 @@
 import { Pool, type PoolClient, type QueryResult, type QueryResultRow } from "pg";
 import type { RequestContext } from "../../../../shared/types/api";
 import { AppError } from "../../../../shared/utils/errors";
+import { withTenantContext } from "./tenantContext";
 
 export type DbClient = {
   query: <T extends QueryResultRow = any>(text: string, params?: any[]) => Promise<QueryResult<T>>;
@@ -22,7 +23,6 @@ const ensureContext = (ctx: RequestContext) => {
 const setRlsContext = async (client: PoolClient, ctx: RequestContext) => {
   await client.query("SELECT set_config('app.request_id', $1, true)", [ctx.requestId]);
   await client.query("SELECT set_config('app.user_id', $1, true)", [ctx.userId]);
-  await client.query("SELECT set_config('app.tenant_id', $1, true)", [ctx.tenantId ?? ""]);
   await client.query("SELECT set_config('app.role', $1, true)", [ctx.role]);
 };
 
@@ -33,6 +33,7 @@ export const getRlsClient = async (ctx: RequestContext): Promise<DbClient> => {
   }
   const client = await pool.connect();
   await setRlsContext(client, ctx);
+  await withTenantContext(client, ctx.tenantId ?? "", async () => Promise.resolve());
   return {
     query: (text, params) => client.query(text, params),
     release: () => client.release()
@@ -51,10 +52,12 @@ export const runWithTransaction = async <T>(ctx: RequestContext, fn: TxFn<T>): P
   try {
     await client.query("BEGIN");
     await setRlsContext(client, ctx);
-    const result = await fn({
-      query: (text, params) => client.query(text, params),
-      release: () => client.release()
-    });
+    const result = await withTenantContext(client, ctx.tenantId ?? "", async () =>
+      fn({
+        query: (text, params) => client.query(text, params),
+        release: () => client.release()
+      })
+    );
     await client.query("COMMIT");
     return result;
   } catch (err) {
@@ -77,10 +80,12 @@ export const withRequestContext = async <T>(
   const client = await pool.connect();
   try {
     await setRlsContext(client, ctx);
-    return await fn({
-      query: (text, params) => client.query(text, params),
-      release: () => client.release()
-    });
+    return await withTenantContext(client, ctx.tenantId ?? "", async () =>
+      fn({
+        query: (text, params) => client.query(text, params),
+        release: () => client.release()
+      })
+    );
   } finally {
     client.release();
   }

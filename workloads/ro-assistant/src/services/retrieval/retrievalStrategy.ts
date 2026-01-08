@@ -10,7 +10,8 @@ export const determineRetrievalStrategy = (
   intent: Intent,
   confidence: number
 ): RetrievalStrategy => {
-  if (intent === "lookup" && confidence >= 0.8) return "DIRECT_LOOKUP";
+  const deterministicIntents = new Set(["lookup", "cost_analysis", "frequency_analysis"]);
+  if (deterministicIntents.has(intent) && confidence >= 0.6) return "DIRECT_LOOKUP";
   if (confidence >= 0.6) return "HYBRID_SEARCH";
   return "BROAD_VECTOR_SEARCH";
 };

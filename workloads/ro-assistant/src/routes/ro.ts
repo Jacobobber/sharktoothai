@@ -31,11 +31,31 @@ export const roHandler: RequestHandler = async (req, res) => {
   try {
     const { roResult, chunksResult } = await withRequestContext(ctx, async (client) => {
       const roResult = await client.query(
-        `SELECT ro_id, ro_number, doc_id, ro_status, advisor_name, technician_name,
-                vehicle_year, vehicle_make, vehicle_model, vehicle_color,
-                mileage_in, mileage_out, labor_total, parts_total, total_due, created_at
-           FROM app.repair_orders
-          WHERE tenant_id = $1 AND ro_id = $2`,
+        `SELECT r.ro_id,
+                r.ro_number,
+                r.doc_id,
+                r.created_at,
+                d.ro_number AS det_ro_number,
+                d.ro_status,
+                d.open_timestamp,
+                d.close_timestamp,
+                d.advisor_id,
+                d.technician_id,
+                d.vehicle_year,
+                d.vehicle_make,
+                d.vehicle_model,
+                d.vehicle_color,
+                d.odometer_in AS mileage_in,
+                d.odometer_out AS mileage_out,
+                d.labor_total,
+                d.parts_total,
+                d.tax_total,
+                d.discount_total,
+                d.grand_total AS total_due
+           FROM app.repair_orders r
+           LEFT JOIN app.ro_deterministic_v2 d
+             ON d.tenant_id = r.tenant_id AND d.ro_number = r.ro_number
+          WHERE r.tenant_id = $1 AND r.ro_id = $2`,
         [ctx.tenantId, roId]
       );
 
@@ -43,9 +63,16 @@ export const roHandler: RequestHandler = async (req, res) => {
         return { roResult, chunksResult: null };
       }
 
+      if (!roResult.rows[0]?.det_ro_number) {
+        throw new AppError("Deterministic payload missing for RO", {
+          status: 500,
+          code: "RO_DETERMINISTIC_MISSING"
+        });
+      }
+
       const chunksResult = await client.query(
         `SELECT chunk_id, chunk_index, chunk_text
-           FROM app.ro_chunks
+           FROM app.chunks
           WHERE tenant_id = $1 AND ro_id = $2
           ORDER BY chunk_index ASC`,
         [ctx.tenantId, roId]
@@ -65,8 +92,9 @@ export const roHandler: RequestHandler = async (req, res) => {
       object_id: roId
     });
 
+    const { det_ro_number: _det_ro_number, ...ro } = roResult.rows[0];
     return res.status(200).json({
-      ro: roResult.rows[0],
+      ro,
       chunks: chunksResult.rows.map((c) => ({
         chunk_id: c.chunk_id,
         chunk_index: c.chunk_index,

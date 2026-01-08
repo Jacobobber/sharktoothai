@@ -119,16 +119,6 @@ const appendMessage = (role, content, sources) => {
   messageList.scrollTop = messageList.scrollHeight;
 };
 
-const getScopeHeaders = () => {
-  if (currentRole !== "DEVELOPER") return {};
-  const value = scopeValue.value;
-  if (!value) return {};
-  if (scopeMode === "group") {
-    return { "x-scope-group-id": value };
-  }
-  return { "x-scope-tenant-id": value };
-};
-
 const updateScopeStatus = () => {
   if (currentRole !== "DEVELOPER") {
     scopeStatus.textContent = "Tenant scope";
@@ -233,14 +223,12 @@ const sendMessage = async (message) => {
   chatInput.value = "";
   chatInput.focus();
 
-  const headers = getScopeHeaders();
   const payload = {
     message,
     conversation_id: currentConversationId || undefined
   };
   const response = await apiFetch("/chat/messages", {
     method: "POST",
-    headers,
     body: JSON.stringify(payload)
   });
   if (!currentConversationId && response.conversation_id) {

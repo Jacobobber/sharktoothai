@@ -3,7 +3,6 @@ import { ingestHandler } from "../../../../../workloads/ro-assistant/src/routes/
 import { searchHandler } from "../../../../../workloads/ro-assistant/src/routes/search";
 import { answerHandler } from "../../../../../workloads/ro-assistant/src/routes/answer";
 import { roHandler } from "../../../../../workloads/ro-assistant/src/routes/ro";
-import { piiReadHandler } from "../../../../../workloads/ro-assistant/src/routes/pii";
 
 export const workloadsRouter = Router();
 
@@ -15,7 +14,6 @@ workloadsRouter.post("/workloads/ro/answer", answerHandler);
 
 workloadsRouter.get("/workloads/ro/ro/:ro_id", roHandler);
 
-workloadsRouter.get("/workloads/ro/pii/:ro_id", piiReadHandler);
 
 workloadsRouter.get("/workloads/ro/documents/:doc_id/download", (_req, res) => {
   res

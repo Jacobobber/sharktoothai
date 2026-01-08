@@ -122,6 +122,55 @@ const toInt = (value: string, field: string): number => {
 const isPiiField = (field: string) => PII_FIELDS.has(field);
 const isDeterministicField = (field: string) => DETERMINISTIC_FIELDS.has(field);
 const isSemanticField = (field: string) => SEMANTIC_FIELDS.has(field);
+const KNOWN_FIELDS = new Set([...PII_FIELDS, ...DETERMINISTIC_FIELDS, ...SEMANTIC_FIELDS]);
+
+const levenshteinDistance = (left: string, right: string): number => {
+  if (left === right) return 0;
+  if (!left.length) return right.length;
+  if (!right.length) return left.length;
+  const rows = left.length + 1;
+  const cols = right.length + 1;
+  const matrix: number[][] = Array.from({ length: rows }, () => Array(cols).fill(0));
+  for (let i = 0; i < rows; i += 1) matrix[i][0] = i;
+  for (let j = 0; j < cols; j += 1) matrix[0][j] = j;
+  for (let i = 1; i < rows; i += 1) {
+    for (let j = 1; j < cols; j += 1) {
+      const cost = left[i - 1] === right[j - 1] ? 0 : 1;
+      matrix[i][j] = Math.min(
+        matrix[i - 1][j] + 1,
+        matrix[i][j - 1] + 1,
+        matrix[i - 1][j - 1] + cost
+      );
+    }
+  }
+  return matrix[rows - 1][cols - 1];
+};
+
+const closestSchemaMatches = (unknownFields: string[], limit = 5): string[] => {
+  if (!unknownFields.length) return [];
+  const bases = unknownFields.map((field) => parseIndexedFieldName(field).base);
+  const candidates = Array.from(KNOWN_FIELDS);
+  const scored = candidates.map((candidate) => {
+    const score = Math.min(
+      ...bases.map((base) => levenshteinDistance(base, candidate))
+    );
+    return { candidate, score };
+  });
+  scored.sort((a, b) => a.score - b.score || a.candidate.localeCompare(b.candidate));
+  return scored.slice(0, limit).map((entry) => entry.candidate);
+};
+
+const buildUnknownFieldError = (unknownFields: string[]): AppError => {
+  const unique = Array.from(new Set(unknownFields));
+  const matches = closestSchemaMatches(unique, 5);
+  let message = `Unknown XML field${unique.length > 1 ? "s" : ""}: ${unique.join(
+    ", "
+  )}. field not in Schema V2 allow-list.`;
+  if (matches.length) {
+    message += ` Closest matches: ${matches.join(", ")}.`;
+  }
+  return new AppError(message, { status: 400, code: "XML_FIELD_UNKNOWN" });
+};
 
 const initDeterministicPayload = (): DeterministicPayload => ({
   laborLines: [],
@@ -313,6 +362,7 @@ export const routeXmlToPayloads = (xml: string): RoutedPayloads => {
   const seenFields = new Set<string>();
   const laborLineMap = new Map<number, LaborLine>();
   const partLineMap = new Map<string, PartLine>();
+  const unknownFields: string[] = [];
 
   for (const leaf of leaves) {
     const field = leaf.path;
@@ -325,6 +375,11 @@ export const routeXmlToPayloads = (xml: string): RoutedPayloads => {
     seenFields.add(field);
     const indexed = parseIndexedFieldName(field);
     const base = indexed.base;
+    const knownBase = isPiiField(base) || isDeterministicField(base) || isSemanticField(base);
+    if (!knownBase) {
+      unknownFields.push(field);
+      continue;
+    }
     if (isPiiField(base)) {
       if (indexed.isIndexed) {
         throw new AppError(`Indexed PII field not allowed: ${field}`, {
@@ -408,15 +463,10 @@ export const routeXmlToPayloads = (xml: string): RoutedPayloads => {
       semanticPayload.push(leaf);
       continue;
     }
-    const looksTextLike = /[A-Za-z]/.test(leaf.text);
-    if (looksTextLike) {
-      semanticPayload.push(leaf);
-    } else {
-      throw new AppError(`Unclassified non-text field: ${field}`, {
-        status: 400,
-        code: "UNCLASSIFIED_FIELD"
-      });
-    }
+  }
+
+  if (unknownFields.length) {
+    throw buildUnknownFieldError(unknownFields);
   }
 
   const hasPii = Object.keys(piiPayload).length > 0;
@@ -595,8 +645,12 @@ const validateLineItems = (det: DeterministicPayload, semantic: SemanticEntry[])
       });
     }
     if (labor.laborRate == null) {
-      labor.laborRate = LABOR_RATE_FIXED;
-    } else if (Math.abs(labor.laborRate - LABOR_RATE_FIXED) > TOTAL_TOLERANCE) {
+      throw new AppError(`LABOR_RATE missing for labor ${labor.laborIndex}`, {
+        status: 400,
+        code: "LABOR_RATE_MISSING"
+      });
+    }
+    if (Math.abs(labor.laborRate - LABOR_RATE_FIXED) > TOTAL_TOLERANCE) {
       throw new AppError(`LABOR_RATE must be ${LABOR_RATE_FIXED.toFixed(2)}`, {
         status: 400,
         code: "LABOR_RATE_INVALID"
@@ -605,8 +659,12 @@ const validateLineItems = (det: DeterministicPayload, semantic: SemanticEntry[])
 
     const computedExtended = labor.actualHours * LABOR_RATE_FIXED;
     if (labor.laborExtendedAmount == null) {
-      labor.laborExtendedAmount = computedExtended;
-    } else if (Math.abs(labor.laborExtendedAmount - computedExtended) > TOTAL_TOLERANCE) {
+      throw new AppError(`LABOR_EXTENDED_AMOUNT missing for labor ${labor.laborIndex}`, {
+        status: 400,
+        code: "LABOR_EXTENDED_MISSING"
+      });
+    }
+    if (Math.abs(labor.laborExtendedAmount - computedExtended) > TOTAL_TOLERANCE) {
       throw new AppError(`LABOR_EXTENDED_AMOUNT mismatch for labor ${labor.laborIndex}`, {
         status: 400,
         code: "LABOR_EXTENDED_INVALID"
@@ -618,18 +676,18 @@ const validateLineItems = (det: DeterministicPayload, semantic: SemanticEntry[])
   const partTotals: number[] = [];
   for (const part of det.partLines) {
     if (part.partExtendedPrice == null) {
-      if (part.partQuantity == null || part.partUnitPrice == null) {
-        throw new AppError(`PART_EXTENDED_PRICE missing for part ${part.laborIndex}_${part.partIndex}`, {
-          status: 400,
-          code: "PART_EXTENDED_MISSING"
-        });
-      }
-      part.partExtendedPrice = part.partQuantity * part.partUnitPrice;
-    } else if (
-      part.partQuantity != null &&
-      part.partUnitPrice != null &&
-      Math.abs(part.partExtendedPrice - part.partQuantity * part.partUnitPrice) > TOTAL_TOLERANCE
-    ) {
+      throw new AppError(`PART_EXTENDED_PRICE missing for part ${part.laborIndex}_${part.partIndex}`, {
+        status: 400,
+        code: "PART_EXTENDED_MISSING"
+      });
+    }
+    if (part.partQuantity == null || part.partUnitPrice == null) {
+      throw new AppError(`PART_QUANTITY or PART_UNIT_PRICE missing for part ${part.laborIndex}_${part.partIndex}`, {
+        status: 400,
+        code: "PART_COMPONENT_MISSING"
+      });
+    }
+    if (Math.abs(part.partExtendedPrice - part.partQuantity * part.partUnitPrice) > TOTAL_TOLERANCE) {
       throw new AppError(`PART_EXTENDED_PRICE mismatch for part ${part.laborIndex}_${part.partIndex}`, {
         status: 400,
         code: "PART_EXTENDED_INVALID"
@@ -640,28 +698,44 @@ const validateLineItems = (det: DeterministicPayload, semantic: SemanticEntry[])
 
   const laborTotalComputed = laborTotals.reduce((sum, value) => sum + value, 0);
   if (det.laborTotal == null) {
-    det.laborTotal = laborTotalComputed;
-  } else if (Math.abs(det.laborTotal - laborTotalComputed) > TOTAL_TOLERANCE) {
+    throw new AppError("LABOR_TOTAL missing", { status: 400, code: "LABOR_TOTAL_MISSING" });
+  }
+  if (Math.abs(det.laborTotal - laborTotalComputed) > TOTAL_TOLERANCE) {
     throw new AppError("LABOR_TOTAL mismatch", { status: 400, code: "LABOR_TOTAL_INVALID" });
   }
 
   const partsTotalComputed = partTotals.reduce((sum, value) => sum + value, 0);
   if (det.partsTotal == null) {
-    det.partsTotal = partsTotalComputed;
-  } else if (Math.abs(det.partsTotal - partsTotalComputed) > TOTAL_TOLERANCE) {
+    throw new AppError("PARTS_TOTAL missing", { status: 400, code: "PARTS_TOTAL_MISSING" });
+  }
+  if (Math.abs(det.partsTotal - partsTotalComputed) > TOTAL_TOLERANCE) {
     throw new AppError("PARTS_TOTAL mismatch", { status: 400, code: "PARTS_TOTAL_INVALID" });
   }
 
-  const shopFees = det.shopFees ?? 0;
-  const environmentalFees = det.environmentalFees ?? 0;
-  const taxTotal = det.taxTotal ?? 0;
-  const discountTotal = det.discountTotal ?? 0;
+  if (det.shopFees == null) {
+    throw new AppError("SHOP_FEES missing", { status: 400, code: "SHOP_FEES_MISSING" });
+  }
+  if (det.environmentalFees == null) {
+    throw new AppError("ENVIRONMENTAL_FEES missing", { status: 400, code: "ENVIRONMENTAL_FEES_MISSING" });
+  }
+  if (det.taxTotal == null) {
+    throw new AppError("TAX_TOTAL missing", { status: 400, code: "TAX_TOTAL_MISSING" });
+  }
+  if (det.discountTotal == null) {
+    throw new AppError("DISCOUNT_TOTAL missing", { status: 400, code: "DISCOUNT_TOTAL_MISSING" });
+  }
+
+  const shopFees = det.shopFees;
+  const environmentalFees = det.environmentalFees;
+  const taxTotal = det.taxTotal;
+  const discountTotal = det.discountTotal;
   const computedGrand =
     laborTotalComputed + partsTotalComputed + shopFees + environmentalFees + taxTotal - discountTotal;
 
   if (det.grandTotal == null) {
-    det.grandTotal = computedGrand;
-  } else if (Math.abs(det.grandTotal - computedGrand) > TOTAL_TOLERANCE) {
+    throw new AppError("GRAND_TOTAL missing", { status: 400, code: "GRAND_TOTAL_MISSING" });
+  }
+  if (Math.abs(det.grandTotal - computedGrand) > TOTAL_TOLERANCE) {
     throw new AppError("GRAND_TOTAL mismatch", { status: 400, code: "GRAND_TOTAL_INVALID" });
   }
 };

@@ -16,11 +16,12 @@ async function main() {
     const records = await client.query<{
       ro_id: string;
       customer_id: string | null;
+      customer_uuid: string | null;
       key_ref: string;
       nonce: Buffer;
       ciphertext: Buffer;
     }>(
-      `SELECT ro_id, customer_id, key_ref, nonce, ciphertext
+      `SELECT ro_id, customer_id, customer_uuid, key_ref, nonce, ciphertext
        FROM app.pii_vault
        WHERE tenant_id = $1`,
       [ctx.tenantId]
@@ -33,9 +34,13 @@ async function main() {
         ciphertext: record.ciphertext
       });
       const encrypted = await encryptPiiPayload(payload);
+      const customerUuid = record.customer_uuid ?? record.customer_id;
+      if (!customerUuid) {
+        throw new Error(`Missing customer_uuid for ro_id ${record.ro_id}`);
+      }
       await writePiiVaultRecord(client, ctx, {
         roId: record.ro_id,
-        customerId: record.customer_id ?? null,
+        customerUuid,
         keyRef: encrypted.keyRef,
         nonce: encrypted.nonce,
         ciphertext: encrypted.ciphertext

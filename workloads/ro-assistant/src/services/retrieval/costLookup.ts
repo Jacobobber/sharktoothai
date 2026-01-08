@@ -14,16 +14,11 @@ export const resolveCostLookup = async (
   client: DbClient,
   ctx: RequestContext,
   options: {
-    scopeTenantId?: string | null;
-    scopeGroupId?: string | null;
     roNumbers?: string[];
     limit?: number;
   }
 ): Promise<CostLookupMatch[]> => {
-  const scope = await resolveTenantScope(client, ctx, {
-    scopeTenantId: options.scopeTenantId,
-    scopeGroupId: options.scopeGroupId
-  });
+  const scope = await resolveTenantScope(client, ctx);
   const limit = options.limit ?? 3;
   const roNumbers = options.roNumbers?.length ? options.roNumbers : null;
 
@@ -33,19 +28,14 @@ export const resolveCostLookup = async (
     labor_total: string | null;
     parts_total: string | null;
   }>(
-    `SELECT r.ro_id,
-            r.ro_number,
-            COALESCE(SUM(l.amount), 0)::text AS labor_total,
-            COALESCE(SUM(p.line_total), 0)::text AS parts_total
-     FROM app.repair_orders r
-     LEFT JOIN app.ro_labor_lines l
-       ON l.ro_id = r.ro_id AND l.tenant_id = r.tenant_id
-     LEFT JOIN app.ro_parts_lines p
-       ON p.ro_id = r.ro_id AND p.tenant_id = r.tenant_id
-     WHERE r.tenant_id = ANY($1::uuid[])
-       AND ($2::text[] IS NULL OR r.ro_number = ANY($2::text[]))
-     GROUP BY r.ro_id, r.ro_number
-     ORDER BY (COALESCE(SUM(l.amount), 0) + COALESCE(SUM(p.line_total), 0)) DESC
+    `SELECT d.ro_id,
+            d.ro_number,
+            d.labor_total::text AS labor_total,
+            d.parts_total::text AS parts_total
+     FROM app.ro_deterministic_v2 d
+     WHERE d.tenant_id = ANY($1::uuid[])
+       AND ($2::text[] IS NULL OR d.ro_number = ANY($2::text[]))
+     ORDER BY (COALESCE(d.labor_total, 0) + COALESCE(d.parts_total, 0)) DESC
      LIMIT $3`,
     [scope.tenantIds, roNumbers, limit]
   );

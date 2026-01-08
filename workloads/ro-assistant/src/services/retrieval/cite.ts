@@ -1,6 +1,7 @@
 import { xmlToText } from "./xmlToText";
 import { generateChatAnswer, isLlmEnabled } from "./llm";
 import { AnswerTone } from "./answerTone";
+import { redactSemanticText } from "../ingest/redact";
 
 type Citation = {
   excerpt: string;
@@ -33,7 +34,7 @@ const normalizeInput = (input: AnswerInput): NormalizedInput => {
       ...match,
       citations: match.citations.map((citation) => ({
         ...citation,
-        clean_excerpt: xmlToText(citation.excerpt)
+        clean_excerpt: redactSemanticText(xmlToText(citation.excerpt))
       }))
     }))
   };
@@ -139,5 +140,99 @@ export const buildCitedAnswer = async (
     prompt,
     answer: buildDeterministicAnswer(normalized, tone),
     used_llm: false
+  };
+};
+
+export type DeterministicAnswerResult =
+  | {
+      kind: "lookup";
+      ro_number: string;
+      ro_status?: string | null;
+      labor_total?: number | null;
+      parts_total?: number | null;
+      grand_total?: number | null;
+      open_timestamp?: string | null;
+      close_timestamp?: string | null;
+    }
+  | {
+      kind: "cost";
+      ro_number: string;
+      labor_total: number;
+      parts_total: number;
+      total: number;
+    }
+  | {
+      kind: "aggregate";
+      label: string;
+      value: number;
+    };
+
+export type DeterministicSource = {
+  type: "deterministic";
+  table: string;
+  ro_number?: string;
+  fields_used?: string[];
+};
+
+export const buildDeterministicAnswer = (input: {
+  question: string;
+  results: DeterministicAnswerResult[];
+}): { prompt: string; answer: string; used_llm: boolean; sources: DeterministicSource[] } => {
+  if (!input.results.length) {
+    return {
+      prompt: `Question: ${input.question}\nNo deterministic records found.`,
+      answer: "No relevant records found.",
+      used_llm: false,
+      sources: []
+    };
+  }
+
+  const lines: string[] = ["Summary: Deterministic records are listed below."];
+  const detailLines: string[] = [];
+  const sources: DeterministicSource[] = [];
+  for (const result of input.results) {
+    if (result.kind === "aggregate") {
+      detailLines.push(`${result.label.replace(/_/g, " ")}: ${result.value}`);
+      sources.push({
+        type: "deterministic",
+        table: "app.repair_orders",
+        fields_used: ["ro_number"]
+      });
+      continue;
+    }
+    if (result.kind === "cost") {
+      detailLines.push(
+        `RO ${result.ro_number}: labor ${result.labor_total.toFixed(2)}, parts ${result.parts_total.toFixed(
+          2
+        )}, total ${result.total.toFixed(2)}.`
+      );
+      sources.push({
+        type: "deterministic",
+        table: "app.ro_deterministic_v2",
+        ro_number: result.ro_number,
+        fields_used: ["labor_total", "parts_total", "grand_total"]
+      });
+      continue;
+    }
+    const fields: string[] = [];
+    if (result.ro_status) fields.push(`status ${result.ro_status}`);
+    if (result.labor_total != null) fields.push(`labor ${Number(result.labor_total).toFixed(2)}`);
+    if (result.parts_total != null) fields.push(`parts ${Number(result.parts_total).toFixed(2)}`);
+    if (result.grand_total != null) fields.push(`total ${Number(result.grand_total).toFixed(2)}`);
+    detailLines.push(`RO ${result.ro_number}: ${fields.join(", ") || "details available"}.`);
+    sources.push({
+      type: "deterministic",
+      table: "app.ro_deterministic_v2",
+      ro_number: result.ro_number,
+      fields_used: ["ro_status", "open_timestamp", "close_timestamp", "labor_total", "parts_total", "grand_total"]
+    });
+  }
+
+  const answer = detailLines.length ? `${lines[0]}\n${detailLines.join("\n")}` : lines[0];
+  return {
+    prompt: `Question: ${input.question}\nDeterministic results:\n${detailLines.join("\n")}`,
+    answer,
+    used_llm: false,
+    sources
   };
 };

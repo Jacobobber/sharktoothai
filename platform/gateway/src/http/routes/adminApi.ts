@@ -15,8 +15,8 @@ const getTenantScope = async (
   client: DbClient
 ): Promise<string[] | null> => {
   if (!ctx?.role) return [];
-  if (isDeveloperRole(ctx.role)) return null;
   if (!ctx.tenantId) return [];
+  if (isDeveloperRole(ctx.role)) return [ctx.tenantId];
   if (isDealerAdminRole(ctx.role)) {
     const result = await client.query<{ group_id: string | null }>(
       `SELECT group_id FROM app.tenants WHERE tenant_id = $1`,

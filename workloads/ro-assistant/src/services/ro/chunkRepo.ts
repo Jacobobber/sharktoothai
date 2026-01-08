@@ -20,7 +20,7 @@ export const getChunksByIds = async (
   const { rows } = await client.query<ChunkRecord>(
     `SELECT chunk_id, chunk_text, chunk_index
             , ro_id
-      FROM app.ro_chunks
+      FROM app.chunks
      WHERE tenant_id = ANY($1::uuid[]) AND chunk_id = ANY($2::uuid[])`,
     [scopedTenantIds, chunkIds]
   );

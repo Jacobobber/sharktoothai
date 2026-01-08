@@ -10,7 +10,12 @@ import { getChunksByIds } from "../services/ro/chunkRepo";
 import { getRosByIds } from "../services/ro/roRepo";
 import { classifyIntent } from "../services/retrieval/intentClassifier";
 import { redactPII } from "../services/retrieval/redactPii";
-import { fetchRoChunksByNumber, parseRoNumbers } from "../services/retrieval/roNumberLookup";
+import { parseRoNumbers } from "../services/retrieval/roNumberLookup";
+import {
+  fetchDeterministicLookup,
+  fetchDeterministicCost,
+  fetchDeterministicCount
+} from "../services/retrieval/deterministicLookup";
 import {
   determineRetrievalStrategy,
   type RetrievalStrategy,
@@ -46,9 +51,6 @@ export const searchHandler: RequestHandler = async (req, res) => {
   }
 
   const topK = body.top_k && body.top_k > 0 ? Math.min(body.top_k, 5) : 3;
-  const scopeTenantId = req.header("x-scope-tenant-id");
-  const scopeGroupId = req.header("x-scope-group-id");
-
   const intent = await classifyIntent(body.query);
   await auditLog(ctx, {
     action: "INTENT_CLASSIFY",
@@ -85,20 +87,53 @@ export const searchHandler: RequestHandler = async (req, res) => {
   }> = [];
 
   if (retrievalStrategy === "DIRECT_LOOKUP") {
-    matchesWithCitations = await withRequestContext(ctx, (client) =>
-      fetchRoChunksByNumber(client, ctx, body.query, scopeTenantId, scopeGroupId)
-    );
+    const deterministic = await withRequestContext(ctx, async (client) => {
+      if (intent.intent === "lookup") {
+        const rows = await fetchDeterministicLookup(client, ctx, body.query);
+        return rows.map((row) => ({ ro_number: row.ro_number }));
+      }
+      if (intent.intent === "cost_analysis") {
+        const rows = await fetchDeterministicCost(client, ctx, body.query, topK);
+        return rows.map((row) => ({ ro_number: row.ro_number }));
+      }
+      if (intent.intent === "frequency_analysis") {
+        const aggregate = await fetchDeterministicCount(client, ctx, body.query);
+        return aggregate ? [] : [];
+      }
+      return [];
+    });
+    matchesWithCitations = deterministic.map((row) => ({
+      ro_number: row.ro_number ?? null,
+      score: 1,
+      citations: []
+    }));
     const fallback = applyDirectLookupFallback(retrievalStrategy, matchesWithCitations.length);
     retrievalStrategy = fallback.strategy;
     fallbackTriggered = fallback.fallbackTriggered;
+    if (!fallbackTriggered) {
+      await auditLog(ctx, {
+        action: "RETRIEVAL_DETERMINISTIC",
+        object_type: "search_query",
+        metadata: {
+          intent: intent.intent,
+          results: matchesWithCitations.length
+        }
+      });
+    } else {
+      await auditLog(ctx, {
+        action: "RETRIEVAL_FALLBACK",
+        object_type: "search_query",
+        metadata: {
+          intent: intent.intent,
+          reason: "deterministic_empty"
+        }
+      });
+    }
   }
 
   const fetchMatches = async (embedding: number[], limitOverride?: number) =>
     withRequestContext(ctx, async (client) => {
-      const scope = await resolveTenantScope(client, ctx, {
-        scopeTenantId,
-        scopeGroupId
-      });
+      const scope = await resolveTenantScope(client, ctx);
       const limit = limitOverride ?? topK;
       const matches = await vectorSearch(client, ctx, embedding, limit, scope.tenantIds);
       const chunkIds = matches.map((m) => m.chunk_id);

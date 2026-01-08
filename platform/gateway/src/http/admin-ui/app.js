@@ -91,12 +91,6 @@ const apiFetch = async (path, options = {}) => {
   if (!headers["Content-Type"] && options.body) {
     headers["Content-Type"] = "application/json";
   }
-  if (currentRole === "DEVELOPER") {
-    const tenantId = tenantSelector?.value?.trim();
-    if (tenantId) {
-      headers["x-tenant-id"] = tenantId;
-    }
-  }
   const response = await fetch(path, { ...options, headers, cache: "no-store", credentials: "include" });
   const contentType = response.headers.get("content-type") || "";
   const text = await response.text();

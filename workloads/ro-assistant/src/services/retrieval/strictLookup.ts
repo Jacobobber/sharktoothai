@@ -50,14 +50,9 @@ const extractPiiHints = (input: string) => {
 export const resolveStrictLookup = async (
   client: DbClient,
   ctx: RequestContext,
-  input: string,
-  scopeTenantId?: string | null,
-  scopeGroupId?: string | null
+  input: string
 ): Promise<StrictLookupResult> => {
-  const scope = await resolveTenantScope(client, ctx, {
-    scopeTenantId,
-    scopeGroupId
-  });
+  const scope = await resolveTenantScope(client, ctx);
 
   const roNumbers = parseRoNumbers(input);
   const dateTokens = parseDateTokens(input);
@@ -85,11 +80,13 @@ export const resolveStrictLookup = async (
   if (dateTokens.length) {
     const result = await client.query<{ ro_id: string; ro_number: string }>(
       `SELECT ro_id, ro_number
-       FROM app.repair_orders
-       WHERE tenant_id = ANY($1::uuid[])
+       FROM app.repair_orders r
+       JOIN app.ro_deterministic_v2 d
+         ON d.tenant_id = r.tenant_id AND d.ro_number = r.ro_number
+       WHERE r.tenant_id = ANY($1::uuid[])
          AND (
-           ro_open_date = ANY($2::date[])
-           OR ro_close_date = ANY($2::date[])
+           d.open_timestamp::date = ANY($2::date[])
+           OR d.close_timestamp::date = ANY($2::date[])
          )`,
       [scope.tenantIds, dateTokens]
     );

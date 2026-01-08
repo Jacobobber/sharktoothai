@@ -48,8 +48,8 @@ const isUuid = (value: string) =>
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 
 const TABLES: TableSpec[] = [
-  { name: "app.ro_embeddings" },
-  { name: "app.ro_chunks" },
+  { name: "app.embeddings" },
+  { name: "app.chunks" },
   { name: "app.ro_parts_lines" },
   { name: "app.ro_labor_lines" },
   { name: "app.ro_deterministic_v2" },
@@ -180,7 +180,7 @@ const main = async () => {
       await verifyClient.query("BEGIN");
       await verifyClient.query("SELECT set_config('app.tenant_id', $1, true)", [args.tenantId]);
       await verifyClient.query("SELECT set_config('app.role', 'ADMIN', true)");
-      const verifyTables = ["app.repair_orders", "app.ro_chunks", "app.ro_embeddings", "app.pii_vault"];
+      const verifyTables = ["app.repair_orders", "app.chunks", "app.embeddings", "app.pii_vault"];
       for (const table of verifyTables) {
         const count = await countRows(verifyClient, table, args.tenantId);
         if (count !== 0) {
