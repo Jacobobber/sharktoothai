@@ -8,11 +8,12 @@ import type { PiiPayload } from "../../workloads/ro-assistant/src/services/pii/p
 import { writePiiVaultRecord } from "../../workloads/ro-assistant/src/services/pii/piiVault";
 import { isTenantPiiEnabled } from "../../workloads/ro-assistant/src/services/tenant/tenantConfig";
 import { randomUUID } from "crypto";
+import { bootstrapTenant } from "./helpers/bootstrapTenant";
 
-const ctx = {
+let ctx: { requestId: string; userId: string; tenantId: string; role: "ADMIN" } = {
   requestId: "pii-test",
-  userId: "00000000-0000-0000-0000-000000000001",
-  tenantId: "00000000-0000-0000-0000-000000000010",
+  userId: randomUUID(),
+  tenantId: randomUUID(),
   role: "ADMIN" as const
 };
 
@@ -24,6 +25,28 @@ async function main() {
   process.env.PII_ACTIVE_KEY = "test-key";
 
   try {
+    await withRequestContext(ctx, async (client) => {
+      const bootstrapped = await bootstrapTenant(client, {
+        tenantId: ctx.tenantId,
+        userId: ctx.userId,
+        role: ctx.role,
+        piiEnabled: true
+      });
+      ctx = {
+        ...ctx,
+        tenantId: bootstrapped.tenantId,
+        userId: bootstrapped.userId ?? ctx.userId
+      };
+      const current = await client.query<{ tenant_id: string | null }>(
+        "SELECT set_config('app.tenant_id', $1, true), app.current_tenant_id() AS tenant_id",
+        [ctx.tenantId]
+      );
+      if (!current.rows[0]?.tenant_id) {
+        console.error("app.current_tenant_id was not set");
+        process.exit(1);
+      }
+    });
+
     const payload: PiiPayload = {
       emails: ["test@example.com"],
       phones: ["555-123-4567"],

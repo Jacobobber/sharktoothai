@@ -12,10 +12,10 @@
     "test:redaction": "ts-node scripts/tests/redaction_harness.ts",
     "test:pii-scan": "ts-node scripts/tests/pii_scan_harness.ts",
     "test:pii-ingest-db": "ts-node scripts/tests/pii_ingest_db_harness.ts",
-    "chat:cleanup": "ts-node scripts/cleanup_chat_history.ts"
+    "chat:cleanup": "ts-node scripts/cleanup_chat_history.ts",
+    "ci:schema-v2-guards": "ts-node scripts/ci/schema_v2_guards.ts"
   },
   "dependencies": {
-    "@sendgrid/mail": "^8.1.6",
     "bcryptjs": "^2.4.3",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",

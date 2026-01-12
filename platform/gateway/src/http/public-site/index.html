@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Sharktooth AI</title>
     <link rel="stylesheet" href="/styles.css" />
-    <script src="/public-site.js" defer></script>
   </head>
   <body>
     <header class="section">
@@ -17,10 +16,8 @@
           customer PII.
         </p>
         <div class="actions">
-          <button type="button" class="button-primary js-request-demo">Request a Demo</button>
-          <a class="button-secondary" href="/app">Log In →</a>
+          <a class="button-primary" href="/app">Log In →</a>
         </div>
-        <p id="demoConfirmation" class="confirmation" hidden>Thank you. We will be in touch.</p>
       </div>
     </header>
 
@@ -101,8 +98,7 @@
       <section class="section">
         <p class="cta-text">See what your repair orders are already telling you.</p>
         <div class="actions">
-          <button type="button" class="button-primary js-request-demo">Request a Demo</button>
-          <a class="button-secondary" href="/app">Log In →</a>
+          <a class="button-primary" href="/app">Log In →</a>
         </div>
       </section>
     </main>
@@ -118,43 +114,5 @@
       </div>
     </footer>
 
-    <div id="demoOverlay" class="modal-overlay" hidden>
-      <div
-        class="modal"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="demoTitle"
-      >
-        <div class="modal-header">
-          <h2 id="demoTitle">Request a Demo</h2>
-          <button type="button" class="modal-close" id="demoClose">Close</button>
-        </div>
-        <form id="demoForm" novalidate>
-          <div class="field">
-            <label for="demoFullName">Full Name</label>
-            <input id="demoFullName" name="full_name" type="text" required />
-            <span class="field-error" id="errorFullName"></span>
-          </div>
-          <div class="field">
-            <label for="demoWorkEmail">Work Email</label>
-            <input id="demoWorkEmail" name="work_email" type="email" required />
-            <span class="field-error" id="errorWorkEmail"></span>
-          </div>
-          <div class="field">
-            <label for="demoCompany">Company</label>
-            <input id="demoCompany" name="company" type="text" required />
-            <span class="field-error" id="errorCompany"></span>
-          </div>
-          <div class="field">
-            <label for="demoMessage">Message (optional)</label>
-            <textarea id="demoMessage" name="message" rows="4"></textarea>
-            <span class="field-error" id="errorMessage"></span>
-          </div>
-          <button type="submit" class="button-primary" id="demoSubmit">
-            Request a Demo
-          </button>
-        </form>
-      </div>
-    </div>
   </body>
 </html>

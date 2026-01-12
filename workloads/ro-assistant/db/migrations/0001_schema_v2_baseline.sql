@@ -1,6 +1,5 @@
 BEGIN;
 
-CREATE EXTENSION IF NOT EXISTS pgcrypto;
 CREATE EXTENSION IF NOT EXISTS vector;
 
 CREATE SCHEMA IF NOT EXISTS app;
@@ -15,7 +14,7 @@ AS $$
 $$;
 
 CREATE TABLE IF NOT EXISTS app.tenants (
-  tenant_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id uuid PRIMARY KEY,
   name text NOT NULL,
   is_active boolean NOT NULL DEFAULT true,
   pii_enabled boolean NOT NULL DEFAULT true,
@@ -24,7 +23,7 @@ CREATE TABLE IF NOT EXISTS app.tenants (
 );
 
 CREATE TABLE IF NOT EXISTS app.documents (
-  doc_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  doc_id uuid PRIMARY KEY,
   tenant_id uuid NOT NULL,
   filename text NOT NULL,
   mime_type text NOT NULL,
@@ -37,7 +36,7 @@ CREATE TABLE IF NOT EXISTS app.documents (
 );
 
 CREATE TABLE IF NOT EXISTS app.repair_orders (
-  ro_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  ro_id uuid PRIMARY KEY,
   tenant_id uuid NOT NULL,
   doc_id uuid NOT NULL,
   ro_number text NOT NULL,
@@ -114,7 +113,7 @@ CREATE TABLE IF NOT EXISTS app.ro_deterministic_v2 (
 );
 
 CREATE TABLE IF NOT EXISTS app.ro_labor_lines (
-  labor_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  labor_id uuid PRIMARY KEY,
   tenant_id uuid NOT NULL,
   ro_id uuid NOT NULL,
   labor_index int NOT NULL,
@@ -136,7 +135,7 @@ CREATE TABLE IF NOT EXISTS app.ro_labor_lines (
 );
 
 CREATE TABLE IF NOT EXISTS app.ro_parts_lines (
-  part_line_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  part_line_id uuid PRIMARY KEY,
   tenant_id uuid NOT NULL,
   ro_id uuid NOT NULL,
   labor_index int NOT NULL,
@@ -154,7 +153,7 @@ CREATE TABLE IF NOT EXISTS app.ro_parts_lines (
 );
 
 CREATE TABLE IF NOT EXISTS app.chunks (
-  chunk_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  chunk_id uuid PRIMARY KEY,
   tenant_id uuid NOT NULL,
   ro_id uuid NOT NULL,
   chunk_text text NOT NULL,
@@ -164,7 +163,7 @@ CREATE TABLE IF NOT EXISTS app.chunks (
 );
 
 CREATE TABLE IF NOT EXISTS app.embeddings (
-  embedding_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  embedding_id uuid PRIMARY KEY,
   tenant_id uuid NOT NULL,
   chunk_id uuid NOT NULL,
   embedding vector,
@@ -191,7 +190,7 @@ CREATE TABLE IF NOT EXISTS app.pii_vault (
 );
 
 CREATE TABLE IF NOT EXISTS chat.conversations (
-  conversation_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  conversation_id uuid PRIMARY KEY,
   tenant_id uuid NOT NULL,
   user_id uuid NOT NULL,
   title text NOT NULL,
@@ -200,7 +199,7 @@ CREATE TABLE IF NOT EXISTS chat.conversations (
 );
 
 CREATE TABLE IF NOT EXISTS chat.messages (
-  message_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  message_id uuid PRIMARY KEY,
   conversation_id uuid NOT NULL,
   tenant_id uuid NOT NULL,
   user_id uuid NOT NULL,

@@ -28,7 +28,6 @@
           <button data-section="groups">Groups</button>
           <button data-section="users">Users</button>
           <button data-section="chats">Chats</button>
-          <button data-section="ingest">Ingest</button>
           <button data-section="audit">Audit</button>
         </nav>
       </aside>
@@ -57,10 +56,6 @@
               <h3>Users</h3>
               <p id="userSummary">Loading…</p>
             </div>
-            <div class="card dashboard-card" data-target="ingest">
-              <h3>Ingest Activity</h3>
-              <p id="ingestSummary">Loading…</p>
-            </div>
             <div class="card dashboard-card" data-target="chats">
               <h3>Chats</h3>
               <p id="chatSummary">Loading…</p>
@@ -80,7 +75,15 @@
               <input id="tenantGroup" placeholder="Group ID (optional)" />
               <button id="createTenant">Create Tenant</button>
             </div>
+            <div class="field">
+              <label for="tenantSftpKey">Tenant SSH public key</label>
+              <textarea id="tenantSftpKey" placeholder="ssh-ed25519 AAAA..." rows="3"></textarea>
+            </div>
             <p id="tenantCreateStatus"></p>
+            <div id="tenantOnboarding" class="card compact" style="display: none;">
+              <h4>SFTP Onboarding</h4>
+              <div id="tenantOnboardingBody" class="mono"></div>
+            </div>
             <table>
               <thead>
                 <tr>
@@ -89,6 +92,9 @@
                   <th>Active</th>
                   <th>PII Enabled</th>
                   <th>Group (ID or name)</th>
+                  <th>SFTP</th>
+                  <th>SFTP Home</th>
+                  <th>Actions</th>
                   <th>Save</th>
                 </tr>
               </thead>
@@ -165,20 +171,6 @@
             </table>
             <h4>Conversation Messages</h4>
             <div id="chatMessages" class="log"></div>
-          </div>
-        </section>
-
-        <section id="ingest" class="section">
-          <div class="card">
-            <h3>Ingest Repair Orders</h3>
-            <p>Upload XML files. Requests run sequentially to avoid rate limits.</p>
-            <input id="ingestFiles" type="file" accept=".xml" multiple />
-            <div class="field inline">
-              <label for="ingestDelay">Delay (ms)</label>
-              <input id="ingestDelay" type="number" min="0" value="750" />
-              <button id="ingestBtn">Start Ingest</button>
-            </div>
-            <div id="ingestLog" class="log"></div>
           </div>
         </section>
 

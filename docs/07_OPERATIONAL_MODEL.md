@@ -20,8 +20,10 @@ After schema initialization: - tenants are created explicitly - users and groups
 performed through controlled code paths or administrative tooling. ---
 ## Data Ingestion Operations
 ### Ingest Preconditions
-Before ingesting data: - schema initialization must be complete - tenant and user context must exist - encryption keys must be available - ingest contracts must be satisfied Ingest 
-behavior is identical regardless of data origin. ---
+Before ingesting data: - schema initialization must be complete - tenant and user context must exist - encryption keys must be available - ingest contracts must be satisfied - ingest 
+requests are authenticated using Azure AD Managed Identity tokens scoped to `INGEST_AAD_AUDIENCE`; only allowlisted Managed Identity object IDs may call ingest - intake Azure 
+Function callers must acquire a Managed Identity access token for `INGEST_AAD_AUDIENCE` and send `Authorization: Bearer <token>` (no secrets) Ingest behavior is identical 
+regardless of data origin. ---
 ### Ingest Guarantees
 For all ingested data: - PII handling guarantees are enforced - deterministic validation is applied - semantic redaction occurs before embedding - failures are explicit and 
 non-partial Operational tooling must not bypass ingest safeguards. ---

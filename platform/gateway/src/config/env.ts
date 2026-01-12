@@ -12,6 +12,14 @@ type EnvConfig = {
   rateLimitWindowSec: number;
   rateLimitMax: number;
   maxUploadBytes: number;
+  ingestAadAudience: string;
+  ingestAllowedCallerObjectIds: string[];
+  azureSubscriptionId: string;
+  azureResourceGroup: string;
+  azureStorageAccountName: string;
+  azureStorageContainerName: string;
+  azureArmApiVersion: string;
+  publicSftpHostname: string;
   azureOpenAiEndpoint: string;
   azureOpenAiApiKey: string;
   azureOpenAiEmbeddingDeployment: string;
@@ -48,6 +56,23 @@ const asInt = (value: string | undefined, name: string, fallback: number) => {
   return parsed;
 };
 
+const asCsvUuids = (value: string | undefined, name: string) => {
+  const raw = required(value, name);
+  const items = raw
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+  if (!items.length) {
+    throw new AppError(`Invalid env list: ${name}`, { status: 500, code: "ENV_INVALID" });
+  }
+  for (const item of items) {
+    if (!isUuid(item)) {
+      throw new AppError(`Invalid env UUID: ${name}`, { status: 500, code: "ENV_INVALID_UUID" });
+    }
+  }
+  return items;
+};
+
 const isUuid = (value: string) =>
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 
@@ -58,6 +83,18 @@ export const loadEnv = (): EnvConfig => {
   const rateLimitWindowSec = asInt(process.env.RATE_LIMIT_WINDOW_SEC, "RATE_LIMIT_WINDOW_SEC", 60);
   const rateLimitMax = asInt(process.env.RATE_LIMIT_MAX, "RATE_LIMIT_MAX", 100);
   const maxUploadBytes = asInt(process.env.MAX_UPLOAD_BYTES, "MAX_UPLOAD_BYTES", 5 * 1024 * 1024);
+  const ingestAadAudience = required(process.env.INGEST_AAD_AUDIENCE, "INGEST_AAD_AUDIENCE");
+  const ingestAllowedCallerObjectIds = asCsvUuids(
+    process.env.INGEST_ALLOWED_CALLER_OBJECT_IDS,
+    "INGEST_ALLOWED_CALLER_OBJECT_IDS"
+  ).map((value) => value.toLowerCase());
+  const azureSubscriptionId = required(process.env.AZURE_SUBSCRIPTION_ID, "AZURE_SUBSCRIPTION_ID");
+  const azureResourceGroup = required(process.env.AZURE_RESOURCE_GROUP, "AZURE_RESOURCE_GROUP");
+  const azureStorageAccountName = required(process.env.AZURE_STORAGE_ACCOUNT_NAME, "AZURE_STORAGE_ACCOUNT_NAME");
+  const azureStorageContainerName = process.env.AZURE_STORAGE_CONTAINER_NAME ?? "ro-ingest-raw";
+  const azureArmApiVersion = process.env.AZURE_ARM_API_VERSION ?? "2023-01-01";
+  const publicSftpHostname =
+    process.env.PUBLIC_SFTP_HOSTNAME ?? `${azureStorageAccountName}.blob.core.windows.net`;
   const azureOpenAiEndpoint = required(process.env.AZURE_OPENAI_ENDPOINT, "AZURE_OPENAI_ENDPOINT");
   const azureOpenAiApiKey = required(process.env.AZURE_OPENAI_API_KEY, "AZURE_OPENAI_API_KEY");
   const azureOpenAiEmbeddingDeployment = required(
@@ -91,10 +128,18 @@ export const loadEnv = (): EnvConfig => {
     port,
     rateLimitWindowSec,
     rateLimitMax,
+    ingestAadAudience,
+    ingestAllowedCallerObjectIds,
     devAuthTokenAdmin,
     devUserIdAdmin,
     devTenantIdAdmin,
     maxUploadBytes,
+    azureSubscriptionId,
+    azureResourceGroup,
+    azureStorageAccountName,
+    azureStorageContainerName,
+    azureArmApiVersion,
+    publicSftpHostname,
     azureOpenAiEndpoint,
     azureOpenAiApiKey,
     azureOpenAiEmbeddingDeployment,

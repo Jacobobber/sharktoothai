@@ -9,7 +9,7 @@ import { resolveTenantScope } from "../services/retrieval/tenantScope";
 import { vectorSearch } from "../services/retrieval/vectorSearch";
 import { getChunksByIds } from "../services/ro/chunkRepo";
 import { getRosByIds } from "../services/ro/roRepo";
-import { buildCitedAnswer, buildDeterministicAnswer } from "../services/retrieval/cite";
+import { buildCitedAnswer, buildDeterministicAnswer, type DeterministicAnswerResult } from "../services/retrieval/cite";
 import { classifyIntent } from "../services/retrieval/intentClassifier";
 import { redactPII } from "../services/retrieval/redactPii";
 import { parseRoNumbers } from "../services/retrieval/roNumberLookup";
@@ -147,7 +147,8 @@ export const answerHandler: RequestHandler = async (req, res) => {
     const deterministic = await withRequestContext(ctx, async (client) => {
       if (intent.intent === "lookup") {
         const rows = await fetchDeterministicLookup(client, ctx, body.question);
-        return rows.map((row) => ({
+        return rows.map(
+          (row): DeterministicAnswerResult => ({
           kind: "lookup",
           ro_number: row.ro_number,
           ro_status: row.ro_status,
@@ -156,21 +157,26 @@ export const answerHandler: RequestHandler = async (req, res) => {
           grand_total: row.grand_total,
           open_timestamp: row.open_timestamp,
           close_timestamp: row.close_timestamp
-        }));
+          })
+        );
       }
       if (intent.intent === "cost_analysis") {
         const rows = await fetchDeterministicCost(client, ctx, body.question, topK);
-        return rows.map((row) => ({
+        return rows.map(
+          (row): DeterministicAnswerResult => ({
           kind: "cost",
           ro_number: row.ro_number,
           labor_total: row.labor_total,
           parts_total: row.parts_total,
           total: row.total
-        }));
+          })
+        );
       }
       if (intent.intent === "frequency_analysis") {
         const aggregate = await fetchDeterministicCount(client, ctx, body.question);
-        return aggregate ? [{ kind: "aggregate", label: aggregate.label, value: aggregate.value }] : [];
+        return aggregate
+          ? ([{ kind: "aggregate", label: aggregate.label, value: aggregate.value }] as DeterministicAnswerResult[])
+          : [];
       }
       return [];
     });

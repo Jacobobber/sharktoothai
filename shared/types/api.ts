@@ -1,3 +1,4 @@
+import type { Request } from "express";
 import type { Role } from "./domain";
 
 export type RequestContext = {
@@ -9,13 +10,9 @@ export type RequestContext = {
   userAgent?: string;
 };
 
-export type RequestWithContext<TParams = any, TResBody = any, TReqBody = any, TQuery = any> =
-  ExpressRequest<TParams, TResBody, TReqBody, TQuery> & { context?: RequestContext };
-
-// Local alias keeps Express imports centralized for future augmentation.
-type ExpressRequest<TParams, TResBody, TReqBody, TQuery> = import("express").Request<
+export type RequestWithContext<TParams = any, TResBody = any, TReqBody = any, TQuery = any> = Request<
   TParams,
   TResBody,
   TReqBody,
   TQuery
->;
+> & { context?: RequestContext };

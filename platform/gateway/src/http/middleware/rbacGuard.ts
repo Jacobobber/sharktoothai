@@ -13,7 +13,10 @@ const rules: PermissionRule[] = [
   { match: (m, p) => m === "GET" && p.startsWith("/admin"), roles: ["ADMIN", "DEALERADMIN", "DEVELOPER"] },
   { match: (m, p) => m === "GET" && p === "/audit", roles: ["ADMIN", "DEALERADMIN", "DEVELOPER"] },
   { match: (_m, p) => p.startsWith("/admin/api"), roles: ["ADMIN", "DEALERADMIN", "DEVELOPER"] },
-  { match: (m, p) => m === "POST" && p === "/workloads/ro/ingest", roles: ["ADMIN", "DEALERADMIN", "DEVELOPER"] },
+  {
+    match: (m, p) => m === "POST" && p === "/workloads/ro/ingest-from-storage",
+    roles: ["ADMIN", "DEALERADMIN", "DEVELOPER"]
+  },
   { match: (m, p) => m === "POST" && p === "/workloads/ro/search", roles: ["USER", "ADMIN", "DEALERADMIN", "DEVELOPER"] },
   { match: (m, p) => m === "POST" && p === "/workloads/ro/answer", roles: ["USER", "ADMIN", "DEALERADMIN", "DEVELOPER"] },
   { match: (m, p) => m === "GET" && p.startsWith("/workloads/ro/ro/"), roles: ["USER", "ADMIN", "DEALERADMIN", "DEVELOPER"] },

@@ -5,11 +5,12 @@ import { withRequestContext } from "../../platform/gateway/src/db/pg";
 import { sha256 } from "../../shared/utils/hash";
 import { answerHandler } from "../../workloads/ro-assistant/src/routes/answer";
 import { searchHandler } from "../../workloads/ro-assistant/src/routes/search";
+import { bootstrapTenant } from "./helpers/bootstrapTenant";
 
-const ctx = {
+let ctx: { requestId: string; userId: string; tenantId: string; role: "ADMIN" } = {
   requestId: "deterministic-retrieval-test",
-  userId: "00000000-0000-0000-0000-000000000001",
-  tenantId: "00000000-0000-0000-0000-000000000010",
+  userId: randomUUID(),
+  tenantId: randomUUID(),
   role: "ADMIN" as const
 };
 
@@ -31,12 +32,24 @@ const buildRes = () => {
 async function main() {
   const roId = randomUUID();
   const docId = randomUUID();
-  const roNumber = "7000001";
+  const roNumberBase = "700001";
+  const roNumber = `RO-${roNumberBase}`;
   const customerUuid = randomUUID();
   const seed = `deterministic-${Date.now()}`;
   const digest = sha256(Buffer.from(seed));
 
   await withRequestContext(ctx, async (client) => {
+    const bootstrapped = await bootstrapTenant(client, {
+      tenantId: ctx.tenantId,
+      userId: ctx.userId,
+      role: ctx.role
+    });
+    ctx = {
+      ...ctx,
+      tenantId: bootstrapped.tenantId,
+      userId: bootstrapped.userId ?? ctx.userId
+    };
+    await client.query("SELECT set_config('app.tenant_id', $1, true)", [ctx.tenantId]);
     await client.query(
       `INSERT INTO app.documents
        (doc_id, tenant_id, filename, mime_type, sha256, storage_path, created_by)
@@ -51,34 +64,77 @@ async function main() {
         ctx.userId
       ]
     );
-    await client.query(
-      `INSERT INTO app.repair_orders (ro_id, tenant_id, doc_id, ro_number, customer_uuid)
-       VALUES ($1, $2, $3, $4, $5)`,
-      [roId, ctx.tenantId, docId, roNumber, customerUuid]
+    const hasCustomerUuid = await client.query(
+      `SELECT 1
+         FROM information_schema.columns
+        WHERE table_schema = 'app'
+          AND table_name = 'repair_orders'
+          AND column_name = 'customer_uuid'`
     );
-    await client.query(
-      `INSERT INTO app.ro_deterministic_v2
-       (ro_id, tenant_id, customer_uuid, ro_number, ro_status, open_timestamp, labor_total, parts_total,
-        tax_total, discount_total, grand_total)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-      [
-        roId,
-        ctx.tenantId,
-        customerUuid,
-        roNumber,
-        "OPEN",
-        "2026-01-01T09:00:00Z",
-        825,
-        172,
-        0,
-        0,
-        997
-      ]
+    if (hasCustomerUuid.rows.length) {
+      await client.query(
+        `INSERT INTO app.repair_orders (ro_id, tenant_id, doc_id, ro_number, customer_uuid)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [roId, ctx.tenantId, docId, roNumber, customerUuid]
+      );
+    } else {
+      await client.query(
+        `INSERT INTO app.repair_orders (ro_id, tenant_id, doc_id, ro_number)
+         VALUES ($1, $2, $3, $4)`,
+        [roId, ctx.tenantId, docId, roNumber]
+      );
+    }
+    const hasDetCustomerUuid = await client.query(
+      `SELECT 1
+         FROM information_schema.columns
+        WHERE table_schema = 'app'
+          AND table_name = 'ro_deterministic_v2'
+          AND column_name = 'customer_uuid'`
     );
+    if (hasDetCustomerUuid.rows.length) {
+      await client.query(
+        `INSERT INTO app.ro_deterministic_v2
+         (ro_id, tenant_id, customer_uuid, ro_number, ro_status, open_timestamp, labor_total, parts_total,
+          tax_total, discount_total, grand_total)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+        [
+          roId,
+          ctx.tenantId,
+          customerUuid,
+          roNumber,
+          "OPEN",
+          "2026-01-01T09:00:00Z",
+          825,
+          172,
+          0,
+          0,
+          997
+        ]
+      );
+    } else {
+      await client.query(
+        `INSERT INTO app.ro_deterministic_v2
+         (ro_id, tenant_id, ro_number, ro_status, open_timestamp, labor_total, parts_total,
+          tax_total, discount_total, grand_total)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+        [
+          roId,
+          ctx.tenantId,
+          roNumber,
+          "OPEN",
+          "2026-01-01T09:00:00Z",
+          825,
+          172,
+          0,
+          0,
+          997
+        ]
+      );
+    }
   });
 
   const lookupReq: any = {
-    body: { question: `RO ${roNumber}` },
+    body: { question: `RO ${roNumberBase}` },
     context: ctx
   };
   const lookupRes = buildRes();
@@ -104,7 +160,7 @@ async function main() {
   }
 
   const costReq: any = {
-    body: { question: `total cost for RO ${roNumber}` },
+    body: { question: `total cost for RO ${roNumberBase}` },
     context: ctx
   };
   const costRes = buildRes();
@@ -134,7 +190,7 @@ async function main() {
   }
 
   const searchReq: any = {
-    body: { query: `RO ${roNumber}` },
+    body: { query: `RO ${roNumberBase}` },
     context: ctx
   };
   const searchRes = buildRes();

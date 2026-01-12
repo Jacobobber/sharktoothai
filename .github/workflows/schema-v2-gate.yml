@@ -1,0 +1,84 @@
+name: schema-v2-gate
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  schema-v2-gate:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: stro_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
+    env:
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/stro_test
+      AZURE_OPENAI_ENDPOINT: https://example.invalid
+      AZURE_OPENAI_API_KEY: test-key
+      AZURE_OPENAI_EMBEDDING_DEPLOYMENT: test-embed
+      AZURE_OPENAI_API_VERSION: 2024-02-15-preview
+      AZURE_OPENAI_CHAT_DEPLOYMENT: test-chat
+      AZURE_OPENAI_CHAT_API_VERSION: 2024-02-15-preview
+      JWT_SECRET: test-secret
+      JWT_EXPIRES_IN: 1h
+      DEV_AUTH_TOKEN_ADMIN: dev-token
+      DEV_USER_ID_ADMIN: 00000000-0000-0000-0000-000000000001
+      DEV_TENANT_ID_ADMIN: 00000000-0000-0000-0000-000000000010
+      PII_HASH_KEY: test-hash-key
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Wait for Postgres
+        run: |
+          for i in {1..30}; do
+            if (echo > /dev/tcp/127.0.0.1/5432) >/dev/null 2>&1; then
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Postgres did not become ready in time"
+          exit 1
+
+      - name: Apply migrations
+        run: npm run db:migrate
+
+      - name: Build
+        run: npm run build
+
+      - name: PII ingest DB harness
+        run: npm run test:pii-ingest-db
+
+      - name: Deterministic retrieval harness
+        run: npx ts-node scripts/tests/deterministic_retrieval_tests.ts
+
+      - name: Tenant RLS harness
+        run: npx ts-node scripts/tests/tenant_rls_harness.ts
+
+      - name: Schema V2 guards
+        env:
+          GITHUB_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: npm run ci:schema-v2-guards

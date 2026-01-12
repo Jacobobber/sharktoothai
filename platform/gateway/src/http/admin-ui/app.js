@@ -13,14 +13,8 @@ const chatMessages = document.getElementById("chatMessages");
 
 const tenantSummary = document.getElementById("tenantSummary");
 const userSummary = document.getElementById("userSummary");
-const ingestSummary = document.getElementById("ingestSummary");
 const auditSummary = document.getElementById("auditSummary");
 const chatSummary = document.getElementById("chatSummary");
-
-const ingestBtn = document.getElementById("ingestBtn");
-const ingestFiles = document.getElementById("ingestFiles");
-const ingestDelay = document.getElementById("ingestDelay");
-const ingestLog = document.getElementById("ingestLog");
 
 const auditAction = document.getElementById("auditAction");
 const auditRefresh = document.getElementById("auditRefresh");
@@ -34,9 +28,12 @@ const userTenantInput = document.getElementById("userTenant");
 const createTenantBtn = document.getElementById("createTenant");
 const tenantNameInput = document.getElementById("tenantName");
 const tenantGroupInput = document.getElementById("tenantGroup");
+const tenantSftpKeyInput = document.getElementById("tenantSftpKey");
 const createTenantRow = document.getElementById("createTenantRow");
 const createGroupRow = document.getElementById("createGroupRow");
 const tenantCreateStatus = document.getElementById("tenantCreateStatus");
+const tenantOnboarding = document.getElementById("tenantOnboarding");
+const tenantOnboardingBody = document.getElementById("tenantOnboardingBody");
 
 let currentRole = null;
 const tenantStorageKey = "adminTenantId";
@@ -47,7 +44,6 @@ const SECTION_META = {
   groups: "Dealer group roster and creation.",
   users: "Create and manage users per tenant.",
   chats: "Customer chat history within scope.",
-  ingest: "Upload synthetic or production XML.",
   audit: "Security and workflow audit trail."
 };
 
@@ -130,6 +126,7 @@ const loadTenants = async () => {
     throw new Error("Tenant data unavailable. Check admin token.");
   }
   tenantTable.innerHTML = "";
+  const canManageSftp = currentRole === "DEVELOPER";
   if (currentRole === "DEVELOPER" && tenantSelector) {
     const saved = localStorage.getItem(tenantStorageKey) ?? "";
     tenantSelector.innerHTML = "";
@@ -146,6 +143,11 @@ const loadTenants = async () => {
     tenantSelector.value = data.data.find((tenant) => tenant.tenant_id === saved)?.tenant_id ?? "";
   }
   data.data.forEach((tenant) => {
+    const statusLabel = tenant.sftp_enabled
+      ? "Enabled"
+      : tenant.sftp_last_error_code
+        ? `Failed (${tenant.sftp_last_error_code})`
+        : "Not provisioned";
     const row = document.createElement("tr");
     row.innerHTML = `
       <td>${tenant.tenant_id}</td>
@@ -153,9 +155,21 @@ const loadTenants = async () => {
       <td><input type="checkbox" data-field="is_active" ${tenant.is_active ? "checked" : ""}></td>
       <td><input type="checkbox" data-field="pii_enabled" ${tenant.pii_enabled ? "checked" : ""}></td>
       <td><input type="text" data-field="group_id" value="${tenant.group_name ?? ""}" placeholder="Group name"></td>
+      <td>${statusLabel}</td>
+      <td>${tenant.sftp_home_uri ?? "—"}</td>
+      <td>
+        <div class="tenant-actions">
+          <button data-sftp-retry="${tenant.tenant_id}">Retry</button>
+          <button data-sftp-rotate="${tenant.tenant_id}">Rotate Key</button>
+          <button class="danger" data-sftp-delete="${tenant.tenant_id}">Deprovision</button>
+        </div>
+      </td>
       <td><button data-save-tenant="${tenant.tenant_id}">Save</button></td>
     `;
     const saveBtn = row.querySelector("button");
+    const retryBtn = row.querySelector("button[data-sftp-retry]");
+    const rotateBtn = row.querySelector("button[data-sftp-rotate]");
+    const deleteBtn = row.querySelector("button[data-sftp-delete]");
     saveBtn?.addEventListener("click", async () => {
       const isActive = row.querySelector('input[data-field="is_active"]').checked;
       const piiEnabled = row.querySelector('input[data-field="pii_enabled"]').checked;
@@ -170,6 +184,51 @@ const loadTenants = async () => {
           body: JSON.stringify({ group_id: groupName || null })
         });
         await loadTenants();
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+    if (!canManageSftp) {
+      if (retryBtn) retryBtn.disabled = true;
+      if (rotateBtn) rotateBtn.disabled = true;
+      if (deleteBtn) deleteBtn.disabled = true;
+    }
+    retryBtn?.addEventListener("click", async () => {
+      const key = prompt("Paste tenant SSH public key for provisioning:");
+      if (!key) return;
+      try {
+        await apiFetch(`/admin/api/tenants/${tenant.tenant_id}/provision-sftp`, {
+          method: "POST",
+          body: JSON.stringify({ tenant_sftp_public_key: key })
+        });
+        await loadTenants();
+        tenantCreateStatus.textContent = "SFTP provisioning triggered.";
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+    rotateBtn?.addEventListener("click", async () => {
+      const key = prompt("Paste new SSH public key for rotation:");
+      if (!key) return;
+      try {
+        await apiFetch(`/admin/api/tenants/${tenant.tenant_id}/rotate-sftp-key`, {
+          method: "POST",
+          body: JSON.stringify({ tenant_sftp_public_key: key })
+        });
+        await loadTenants();
+        tenantCreateStatus.textContent = "SFTP key rotated.";
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+    deleteBtn?.addEventListener("click", async () => {
+      if (!confirm("Deprovision SFTP for this tenant?")) return;
+      try {
+        await apiFetch(`/admin/api/tenants/${tenant.tenant_id}/sftp`, {
+          method: "DELETE"
+        });
+        await loadTenants();
+        tenantCreateStatus.textContent = "SFTP deprovisioned.";
       } catch (err) {
         alert(err.message);
       }
@@ -209,23 +268,9 @@ const loadAudit = async () => {
 };
 
 
-const loadIngestSummary = async () => {
-  const params = new URLSearchParams({ limit: "100" });
-  const data = await apiFetch(`/audit?${params.toString()}`);
-  if (!data.data || !Array.isArray(data.data)) {
-    throw new Error("Audit data unavailable.");
-  }
-  const ingestEvents = data.data.filter((row) =>
-    ["INGEST_COMPLETE", "INGEST_FAILED"].includes(row.action)
-  );
-  const ok = ingestEvents.filter((row) => row.action === "INGEST_COMPLETE").length;
-  const failed = ingestEvents.filter((row) => row.action === "INGEST_FAILED").length;
-  ingestSummary.textContent = `${ok} ingested, ${failed} failed (last 100 audits).`;
-};
-
 const refreshDashboard = async () => {
   try {
-    await Promise.all([loadTenants(), loadUsers(), loadIngestSummary(), loadChatSummary(), loadAudit()]);
+    await Promise.all([loadTenants(), loadUsers(), loadChatSummary(), loadAudit()]);
   } catch {
     // Keep existing values if refresh fails.
   }
@@ -367,53 +412,6 @@ const loadChatMessages = async (conversationId) => {
   }
 };
 
-const appendLog = (message) => {
-  const line = document.createElement("div");
-  line.textContent = message;
-  ingestLog.appendChild(line);
-  ingestLog.scrollTop = ingestLog.scrollHeight;
-};
-
-const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-ingestBtn.addEventListener("click", async () => {
-  ingestLog.innerHTML = "";
-  const files = Array.from(ingestFiles.files ?? []);
-  if (!files.length) {
-    appendLog("Select XML files first.");
-    return;
-  }
-  const delayMs = Number(ingestDelay.value || 0);
-  for (const file of files) {
-    const filename = file.name;
-    const roNumber = filename.replace(/\.xml$/i, "");
-    const contentBase64 = await new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const result = String(reader.result || "");
-        const base64 = result.includes(",") ? result.split(",")[1] : result;
-        resolve(base64);
-      };
-      reader.onerror = () => reject(new Error("File read failed"));
-      reader.readAsDataURL(file);
-    });
-    try {
-      await apiFetch("/workloads/ro/ingest", {
-        method: "POST",
-        body: JSON.stringify({
-          filename,
-          content_base64: contentBase64,
-          ro_number: roNumber
-        })
-      });
-      appendLog(`Ingested ${filename}`);
-    } catch (err) {
-      appendLog(`Failed ${filename}: ${err.message}`);
-    }
-    if (delayMs > 0) await delay(delayMs);
-  }
-});
-
 auditRefresh.addEventListener("click", () => {
   loadAudit().catch((err) => {
     auditSummary.textContent = err.message;
@@ -474,22 +472,35 @@ userRoleInput.addEventListener("change", () => {
 
 createTenantBtn.addEventListener("click", async () => {
   tenantCreateStatus.textContent = "";
+  if (tenantOnboarding) tenantOnboarding.style.display = "none";
   const name = tenantNameInput.value.trim();
   const groupId = tenantGroupInput.value.trim();
-  if (!name) {
-    tenantCreateStatus.textContent = "Tenant name required.";
+  const sftpKey = tenantSftpKeyInput.value.trim();
+  if (!name || !sftpKey) {
+    tenantCreateStatus.textContent = "Tenant name and SSH public key required.";
     return;
   }
   try {
-    await apiFetch("/admin/api/tenants", {
+    const response = await apiFetch("/admin/api/tenants", {
       method: "POST",
-      body: JSON.stringify({ name, group_id: groupId || null })
+      body: JSON.stringify({ tenant_name: name, group_id: groupId || null, tenant_sftp_public_key: sftpKey })
     });
     tenantNameInput.value = "";
     tenantGroupInput.value = "";
+    tenantSftpKeyInput.value = "";
     await loadTenants();
     await refreshDashboard();
-    tenantCreateStatus.textContent = "Tenant created.";
+    const onboarding = response?.data?.onboarding;
+    if (onboarding && tenantOnboarding && tenantOnboardingBody) {
+      tenantOnboardingBody.innerHTML = `
+        <div><strong>Host:</strong> ${onboarding.sftp_host}</div>
+        <div><strong>Username:</strong> ${onboarding.sftp_username}</div>
+        <div><strong>Remote Path:</strong> ${onboarding.sftp_home_path}</div>
+        <div><strong>Auth:</strong> SSH key only</div>
+      `;
+      tenantOnboarding.style.display = "block";
+    }
+    tenantCreateStatus.textContent = "Tenant created and SFTP provisioned.";
   } catch (err) {
     tenantCreateStatus.textContent = err.message || "Failed to create tenant.";
   }
@@ -521,6 +532,7 @@ const loadAuthMe = async () => {
   }
   if (currentRole !== "DEVELOPER") {
     if (createTenantRow) createTenantRow.style.display = "none";
+    if (tenantOnboarding) tenantOnboarding.style.display = "none";
     if (createGroupRow) createGroupRow.style.display = "none";
     if (tenantPicker) tenantPicker.style.display = "none";
     userTenantInput.placeholder = "Tenant ID or name";

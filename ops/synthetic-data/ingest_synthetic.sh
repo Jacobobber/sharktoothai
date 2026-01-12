@@ -6,8 +6,14 @@ if [ -z "${TOKEN:-}" ]; then
   exit 1
 fi
 
+if [ -z "${TENANT_ID:-}" ]; then
+  echo "ERROR: TENANT_ID is required." >&2
+  exit 1
+fi
+
 BASE_URL="${BASE_URL:-http://localhost:3000}"
 INGEST_DELAY_SEC="${INGEST_DELAY_SEC:-1}"
+RAW_INTAKE_DIR="${RAW_INTAKE_DIR:-/data/raw_intake}"
 
 if ! npm run synthetic:validate; then
   echo "ERROR: synthetic:validate failed; aborting ingest." >&2
@@ -45,16 +51,21 @@ skip_count=0
 
 for file_path in "${xml_files[@]}"; do
   filename="$(basename "$file_path")"
-  ro_number="${filename%.xml}"
-  # Base64 output can include newlines; strip them to keep JSON valid.
-  content_base64="$(base64 < "$file_path" | tr -d '\n')"
+  uuid="$(node -e "console.log(require('crypto').randomUUID())")"
+  date_stamp="$(date +%F)"
+  dest_dir="$RAW_INTAKE_DIR/tenant=$TENANT_ID/date=$date_stamp/source=ftp"
+  dest_path="$dest_dir/$uuid.xml"
+
+  mkdir -p "$dest_dir"
+  cp -n "$file_path" "$dest_path"
+  storage_uri="file://$dest_path"
 
   response_file="$(mktemp)"
   http_status=$(curl -sS -o "$response_file" -w "%{http_code}" \
-    -X POST "$BASE_URL/workloads/ro/ingest" \
+    -X POST "$BASE_URL/workloads/ro/ingest-from-storage" \
     -H "Authorization: Bearer $TOKEN" \
     -H "Content-Type: application/json" \
-    --data "{\"filename\":\"$filename\",\"content_base64\":\"$content_base64\",\"ro_number\":\"$ro_number\"}") || {
+    --data "{\"tenant_id\":\"$TENANT_ID\",\"storage_uri\":\"$storage_uri\",\"source\":\"ftp\",\"received_at\":\"$(date -Iseconds)\"}") || {
       echo "ERROR: curl failed for $filename" >&2
       rm -f "$response_file"
       exit 1

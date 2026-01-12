@@ -1,9 +1,20 @@
 import { Router } from "express";
 import type { RequestWithContext } from "../../../../../shared/types/api";
 import { AppError } from "../../../../../shared/utils/errors";
-import { withRequestContext, type DbClient } from "../../db/pg";
+import { runWithTransaction, withRequestContext, type DbClient } from "../../db/pg";
 import { randomUUID } from "crypto";
 import type { Role } from "../../../../../shared/types/domain";
+import { auditLog } from "../../core/audit/auditService";
+import { isValidSshPublicKey, normalizeSshPublicKey } from "../../../../../shared/utils/ssh";
+import {
+  buildSftpUsername,
+  deleteSftpLocalUser,
+  provisionSftpLocalUser,
+  rotateSftpAuthorizedKey
+} from "../../core/azure/storageSftp";
+import { buildSftpFailureUpdate, buildSftpSuccessUpdate } from "../../core/tenant/sftpTenant";
+
+type SftpTenantUpdate = Record<string, string | boolean | Date | null>;
 
 export const adminApiRouter = Router();
 
@@ -55,6 +66,12 @@ adminApiRouter.get("/admin/api/tenants", async (req, res) => {
         group_id: string | null;
         group_name: string | null;
         created_at: string;
+        sftp_username: string | null;
+        sftp_home_uri: string | null;
+        sftp_enabled: boolean;
+        sftp_provisioned_at: string | null;
+        sftp_last_error_code: string | null;
+        sftp_last_error_at: string | null;
       }>(
         `SELECT t.tenant_id,
                 t.name,
@@ -62,7 +79,13 @@ adminApiRouter.get("/admin/api/tenants", async (req, res) => {
                 t.pii_enabled,
                 t.group_id,
                 g.name AS group_name,
-                t.created_at
+                t.created_at,
+                t.sftp_username,
+                t.sftp_home_uri,
+                t.sftp_enabled,
+                t.sftp_provisioned_at,
+                t.sftp_last_error_code,
+                t.sftp_last_error_at
          FROM app.tenants t
          LEFT JOIN app.dealer_groups g ON g.group_id = t.group_id
          ${where}
@@ -161,15 +184,25 @@ adminApiRouter.post("/admin/api/tenants", async (req, res) => {
     return res.status(error.status ?? 403).json({ error: error.code, message: error.message });
   }
 
-  const name = (req.body?.name as string | undefined)?.trim();
+  const name = ((req.body?.tenant_name ?? req.body?.name) as string | undefined)?.trim();
   const groupId = (req.body?.group_id as string | undefined)?.trim() || null;
+  const publicKeyRaw = (req.body?.tenant_sftp_public_key as string | undefined)?.trim();
   if (!name) {
-    const error = new AppError("name required", { status: 400, code: "BAD_REQUEST" });
+    const error = new AppError("tenant_name required", { status: 400, code: "BAD_REQUEST" });
+    return res.status(error.status ?? 400).json({ error: error.code, message: error.message });
+  }
+  if (!publicKeyRaw) {
+    const error = new AppError("tenant_sftp_public_key required", { status: 400, code: "BAD_REQUEST" });
+    return res.status(error.status ?? 400).json({ error: error.code, message: error.message });
+  }
+  const publicKey = normalizeSshPublicKey(publicKeyRaw);
+  if (!isValidSshPublicKey(publicKey)) {
+    const error = new AppError("Invalid SSH public key", { status: 400, code: "SSH_KEY_INVALID" });
     return res.status(error.status ?? 400).json({ error: error.code, message: error.message });
   }
 
   try {
-    const data = await withRequestContext(ctx, async (client) => {
+    const data = await runWithTransaction(ctx, async (client) => {
       if (groupId) {
         const exists = await client.query<{ group_id: string }>(
           `SELECT group_id FROM app.dealer_groups WHERE group_id = $1`,
@@ -200,14 +233,280 @@ adminApiRouter.post("/admin/api/tenants", async (req, res) => {
          RETURNING tenant_id, name, is_active, pii_enabled, group_id, created_at`,
         [tenantId, name, groupId]
       );
-      return result.rows[0];
+      const provisioning = await provisionSftpLocalUser(tenantId, publicKey);
+      const update = buildSftpSuccessUpdate(provisioning);
+      await applyTenantSftpUpdate(client, tenantId, update);
+      return {
+        tenant: result.rows[0],
+        onboarding: {
+          tenant_id: tenantId,
+          sftp_host: provisioning.host,
+          sftp_username: provisioning.username,
+          sftp_home_path: provisioning.homeDirectory,
+          container: provisioning.container,
+          prefix: provisioning.prefix
+        }
+      };
+    });
+    await auditLog(ctx, {
+      action: "TENANT_CREATE_SFTP",
+      object_type: "tenant",
+      object_id: data.tenant.tenant_id,
+      metadata: {
+        tenant_name: data.tenant.name,
+        sftp_username: data.onboarding.sftp_username,
+        sftp_home: data.onboarding.sftp_home_path
+      }
     });
     return res.status(201).json({ data });
-  } catch {
-    const error = new AppError("Failed to create tenant", { status: 500, code: "ADMIN_TENANT_CREATE_FAIL" });
-    return res.status(error.status ?? 500).json({ error: error.code, message: error.message });
+  } catch (err) {
+    const status = err instanceof AppError && err.status ? err.status : 500;
+    const code = err instanceof AppError && err.code ? err.code : "ADMIN_TENANT_CREATE_FAIL";
+    const message = err instanceof AppError ? err.message : "Failed to create tenant";
+    await auditLog(ctx, {
+      action: "TENANT_CREATE_FAILED",
+      object_type: "tenant",
+      metadata: {
+        tenant_name: name ?? "unknown",
+        error_code: code
+      }
+    });
+    return res.status(status).json({ error: code, message });
   }
 });
+
+adminApiRouter.post("/admin/api/tenants/:tenant_id/provision-sftp", async (req, res) => {
+  const ctx = (req as RequestWithContext).context;
+  if (!ctx?.requestId || !ctx?.userId || !ctx?.role || (!ctx?.tenantId && ctx.role !== "DEVELOPER")) {
+    const error = new AppError("Missing context", { status: 400, code: "CTX_MISSING" });
+    return res.status(error.status ?? 400).json({ error: error.code, message: error.message });
+  }
+  if (!isDeveloperRole(ctx.role)) {
+    const error = new AppError("Insufficient role", { status: 403, code: "ROLE_FORBIDDEN" });
+    return res.status(error.status ?? 403).json({ error: error.code, message: error.message });
+  }
+
+  const tenantId = req.params.tenant_id;
+  const publicKeyRaw = (req.body?.tenant_sftp_public_key as string | undefined)?.trim();
+  if (!tenantId) {
+    const error = new AppError("tenant_id required", { status: 400, code: "BAD_REQUEST" });
+    return res.status(error.status ?? 400).json({ error: error.code, message: error.message });
+  }
+  if (!publicKeyRaw) {
+    const error = new AppError("tenant_sftp_public_key required", { status: 400, code: "BAD_REQUEST" });
+    return res.status(error.status ?? 400).json({ error: error.code, message: error.message });
+  }
+  const publicKey = normalizeSshPublicKey(publicKeyRaw);
+  if (!isValidSshPublicKey(publicKey)) {
+    const error = new AppError("Invalid SSH public key", { status: 400, code: "SSH_KEY_INVALID" });
+    return res.status(error.status ?? 400).json({ error: error.code, message: error.message });
+  }
+
+  try {
+    const data = await withRequestContext(ctx, async (client) => {
+      const existing = await client.query<{ tenant_id: string }>(
+        `SELECT tenant_id FROM app.tenants WHERE tenant_id = $1`,
+        [tenantId]
+      );
+      if (!existing.rows[0]) {
+        throw new AppError("Tenant not found", { status: 404, code: "TENANT_NOT_FOUND" });
+      }
+      const provisioning = await provisionSftpLocalUser(tenantId, publicKey);
+      const update = buildSftpSuccessUpdate(provisioning);
+      await applyTenantSftpUpdate(client, tenantId, update);
+      await auditLog(ctx, {
+        action: "TENANT_SFTP_PROVISION",
+        object_type: "tenant",
+        object_id: tenantId,
+        metadata: {
+          sftp_username: provisioning.username,
+          sftp_home: provisioning.homeDirectory
+        }
+      });
+      return {
+        tenant_id: tenantId,
+        sftp_host: provisioning.host,
+        sftp_username: provisioning.username,
+        sftp_home_path: provisioning.homeDirectory,
+        container: provisioning.container,
+        prefix: provisioning.prefix
+      };
+    });
+    return res.status(200).json({ data });
+  } catch (err) {
+    const status = err instanceof AppError && err.status ? err.status : 500;
+    const code = err instanceof AppError && err.code ? err.code : "SFTP_PROVISION_FAILED";
+    const message = err instanceof AppError ? err.message : "Failed to provision SFTP";
+    try {
+      await withRequestContext(ctx, async (client) => {
+        const update = buildSftpFailureUpdate(code);
+        await applyTenantSftpUpdate(client, tenantId, update);
+      });
+    } catch {
+      // ignore follow-up failures
+    }
+    await auditLog(ctx, {
+      action: "TENANT_SFTP_PROVISION_FAILED",
+      object_type: "tenant",
+      object_id: tenantId,
+      metadata: { error_code: code }
+    });
+    return res.status(status).json({ error: code, message });
+  }
+});
+
+adminApiRouter.post("/admin/api/tenants/:tenant_id/rotate-sftp-key", async (req, res) => {
+  const ctx = (req as RequestWithContext).context;
+  if (!ctx?.requestId || !ctx?.userId || !ctx?.role || (!ctx?.tenantId && ctx.role !== "DEVELOPER")) {
+    const error = new AppError("Missing context", { status: 400, code: "CTX_MISSING" });
+    return res.status(error.status ?? 400).json({ error: error.code, message: error.message });
+  }
+  if (!isDeveloperRole(ctx.role)) {
+    const error = new AppError("Insufficient role", { status: 403, code: "ROLE_FORBIDDEN" });
+    return res.status(error.status ?? 403).json({ error: error.code, message: error.message });
+  }
+
+  const tenantId = req.params.tenant_id;
+  const publicKeyRaw = (req.body?.tenant_sftp_public_key as string | undefined)?.trim();
+  if (!tenantId) {
+    const error = new AppError("tenant_id required", { status: 400, code: "BAD_REQUEST" });
+    return res.status(error.status ?? 400).json({ error: error.code, message: error.message });
+  }
+  if (!publicKeyRaw) {
+    const error = new AppError("tenant_sftp_public_key required", { status: 400, code: "BAD_REQUEST" });
+    return res.status(error.status ?? 400).json({ error: error.code, message: error.message });
+  }
+  const publicKey = normalizeSshPublicKey(publicKeyRaw);
+  if (!isValidSshPublicKey(publicKey)) {
+    const error = new AppError("Invalid SSH public key", { status: 400, code: "SSH_KEY_INVALID" });
+    return res.status(error.status ?? 400).json({ error: error.code, message: error.message });
+  }
+
+  try {
+    const data = await withRequestContext(ctx, async (client) => {
+      const existing = await client.query<{ tenant_id: string }>(
+        `SELECT tenant_id FROM app.tenants WHERE tenant_id = $1`,
+        [tenantId]
+      );
+      if (!existing.rows[0]) {
+        throw new AppError("Tenant not found", { status: 404, code: "TENANT_NOT_FOUND" });
+      }
+      const provisioning = await rotateSftpAuthorizedKey(tenantId, publicKey);
+      const update = buildSftpSuccessUpdate(provisioning);
+      await applyTenantSftpUpdate(client, tenantId, update);
+      await auditLog(ctx, {
+        action: "TENANT_SFTP_ROTATE_KEY",
+        object_type: "tenant",
+        object_id: tenantId,
+        metadata: { sftp_username: provisioning.username }
+      });
+      return {
+        tenant_id: tenantId,
+        sftp_host: provisioning.host,
+        sftp_username: provisioning.username,
+        sftp_home_path: provisioning.homeDirectory,
+        container: provisioning.container,
+        prefix: provisioning.prefix
+      };
+    });
+    return res.status(200).json({ data });
+  } catch (err) {
+    const status = err instanceof AppError && err.status ? err.status : 500;
+    const code = err instanceof AppError && err.code ? err.code : "SFTP_ROTATE_FAILED";
+    const message = err instanceof AppError ? err.message : "Failed to rotate SFTP key";
+    try {
+      await withRequestContext(ctx, async (client) => {
+        await applyTenantSftpUpdate(client, tenantId, {
+          sftp_last_error_code: code,
+          sftp_last_error_at: new Date()
+        });
+      });
+    } catch {
+      // ignore follow-up failures
+    }
+    await auditLog(ctx, {
+      action: "TENANT_SFTP_ROTATE_FAILED",
+      object_type: "tenant",
+      object_id: tenantId,
+      metadata: { error_code: code }
+    });
+    return res.status(status).json({ error: code, message });
+  }
+});
+
+adminApiRouter.delete("/admin/api/tenants/:tenant_id/sftp", async (req, res) => {
+  const ctx = (req as RequestWithContext).context;
+  if (!ctx?.requestId || !ctx?.userId || !ctx?.role || (!ctx?.tenantId && ctx.role !== "DEVELOPER")) {
+    const error = new AppError("Missing context", { status: 400, code: "CTX_MISSING" });
+    return res.status(error.status ?? 400).json({ error: error.code, message: error.message });
+  }
+  if (!isDeveloperRole(ctx.role)) {
+    const error = new AppError("Insufficient role", { status: 403, code: "ROLE_FORBIDDEN" });
+    return res.status(error.status ?? 403).json({ error: error.code, message: error.message });
+  }
+
+  const tenantId = req.params.tenant_id;
+  if (!tenantId) {
+    const error = new AppError("tenant_id required", { status: 400, code: "BAD_REQUEST" });
+    return res.status(error.status ?? 400).json({ error: error.code, message: error.message });
+  }
+
+  try {
+    await withRequestContext(ctx, async (client) => {
+      const existing = await client.query<{ tenant_id: string }>(
+        `SELECT tenant_id FROM app.tenants WHERE tenant_id = $1`,
+        [tenantId]
+      );
+      if (!existing.rows[0]) {
+        throw new AppError("Tenant not found", { status: 404, code: "TENANT_NOT_FOUND" });
+      }
+      await deleteSftpLocalUser(tenantId);
+      await applyTenantSftpUpdate(client, tenantId, {
+        sftp_enabled: false,
+        sftp_username: null,
+        sftp_home_uri: null,
+        sftp_provisioned_at: null,
+        sftp_last_error_code: null,
+        sftp_last_error_at: null
+      });
+      await auditLog(ctx, {
+        action: "TENANT_SFTP_DEPROVISION",
+        object_type: "tenant",
+        object_id: tenantId,
+        metadata: { sftp_username: buildSftpUsername(tenantId) }
+      });
+    });
+    return res.status(204).send();
+  } catch (err) {
+    const status = err instanceof AppError && err.status ? err.status : 500;
+    const code = err instanceof AppError && err.code ? err.code : "SFTP_DEPROVISION_FAILED";
+    const message = err instanceof AppError ? err.message : "Failed to deprovision SFTP";
+    await auditLog(ctx, {
+      action: "TENANT_SFTP_DEPROVISION_FAILED",
+      object_type: "tenant",
+      object_id: tenantId,
+      metadata: { error_code: code }
+    });
+    return res.status(status).json({ error: code, message });
+  }
+});
+
+const applyTenantSftpUpdate = async (client: DbClient, tenantId: string, update: SftpTenantUpdate) => {
+  const entries = Object.entries(update);
+  if (!entries.length) return;
+  const sets: string[] = [];
+  const params: any[] = [tenantId];
+  entries.forEach(([key, value]) => {
+    params.push(value);
+    sets.push(`${key} = $${params.length}`);
+  });
+  await client.query(
+    `UPDATE app.tenants
+     SET ${sets.join(", ")}
+     WHERE tenant_id = $1`,
+    params
+  );
+};
 
 adminApiRouter.get("/admin/api/pii/summary", async (req, res) => {
   const ctx = (req as RequestWithContext).context;

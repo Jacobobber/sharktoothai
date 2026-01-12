@@ -5,6 +5,7 @@
 
 import express from "express";
 import { requestId } from "./middleware/requestId";
+import { ingestAadAuth } from "./middleware/ingestAadAuth";
 import { authContext } from "./middleware/authContext";
 import { tenantGuard } from "./middleware/tenantGuard";
 import { rbacGuard } from "./middleware/rbacGuard";
@@ -26,7 +27,7 @@ import { adminUiPublicRouter } from "./routes/adminUiPublic";
 import { appUiPublicRouter } from "./routes/appUiPublic";
 import { appUiRouter } from "./routes/appUi";
 import { chatRouter } from "./routes/chat";
-import { requestDemoRouter } from "./routes/requestDemo";
+import { ingestFromStorageHandler } from "../../../../workloads/ro-assistant/src/routes/ingestFromStorage";
 
 export const createServer = () => {
   const app = express();
@@ -50,7 +51,18 @@ export const createServer = () => {
   app.use(authRouter);
   app.use(adminUiPublicRouter);
   app.use(appUiPublicRouter);
-  app.use(requestDemoRouter);
+
+  // Ingest auth boundary (Managed Identity / Azure AD)
+  app.post(
+    "/workloads/ro/ingest-from-storage",
+    ingestAadAuth,
+    tenantGuard,
+    rbacGuard,
+    policyMiddleware,
+    rlsContext,
+    rateLimit,
+    ingestFromStorageHandler
+  );
 
   // Auth boundary starts here
   app.use(authContext);

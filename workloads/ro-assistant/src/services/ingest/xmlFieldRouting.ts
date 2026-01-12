@@ -517,7 +517,8 @@ export const validateRoutedPayloads = (input: {
     });
   }
 
-  validateRoNumber(det.roNumber);
+  const roNumber = det.roNumber as string;
+  validateRoNumber(roNumber);
   validateLineItems(det, input.semanticPayload);
 
   const pii = input.piiPayload;

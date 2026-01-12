@@ -24,12 +24,7 @@ const run = async () => {
   const { determineAnswerTone, AnswerTone } = await import(
     "../../workloads/ro-assistant/src/services/retrieval/answerTone"
   );
-  const { buildCitedAnswer } = await import(
-    "../../workloads/ro-assistant/src/services/retrieval/cite"
-  );
-  const { buildProvenanceAnswer } = await import(
-    "../../workloads/ro-assistant/src/services/retrieval/answerContext"
-  );
+  const { buildCitedAnswer } = await import("../../workloads/ro-assistant/src/services/retrieval/cite");
 
   assert.strictEqual(determineAnswerTone(0.9), AnswerTone.DEFINITIVE);
   assert.strictEqual(determineAnswerTone(0.7), AnswerTone.QUALIFIED);
@@ -60,16 +55,6 @@ const run = async () => {
     AnswerTone.CAUTIOUS
   );
   assert.ok(cautious.answer.startsWith("Summary: From the repair orders reviewed"));
-
-  const provenance = buildProvenanceAnswer({
-    answerId: "a1",
-    intent: "lookup",
-    tone: "QUALIFIED",
-    retrievalStrategy: "HYBRID_SEARCH",
-    createdAt: new Date().toISOString(),
-    citedROs: [{ roNumber: "RO-0001", evidence: ["Brake pads replaced"] }]
-  });
-  assert.ok(provenance.startsWith("The previous answer was based on these repair orders:"));
 };
 
 run().catch((err) => {

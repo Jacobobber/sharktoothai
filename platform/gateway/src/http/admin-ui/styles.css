@@ -175,6 +175,18 @@ nav button:hover {
   max-width: 140px;
 }
 
+.card.compact {
+  margin: 12px 0 18px;
+  padding: 14px;
+}
+
+.mono {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 12px;
+  display: grid;
+  gap: 6px;
+}
+
 .tenant-picker {
   display: flex;
   flex-direction: column;
@@ -280,6 +292,17 @@ td {
   text-align: left;
   padding: 8px 6px;
   border-bottom: 1px solid #efe3d3;
+}
+
+.tenant-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.tenant-actions button {
+  padding: 6px 10px;
+  font-size: 12px;
 }
 
 .log {

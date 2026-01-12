@@ -369,15 +369,16 @@ adminUsersRouter.post("/admin/api/groups", async (req, res) => {
 
   try {
     const data = await withRequestContext(ctx, async (client) => {
+      const groupId = randomUUID();
       const result = await client.query<{
         group_id: string;
         name: string;
         created_at: string;
       }>(
         `INSERT INTO app.dealer_groups (group_id, name)
-         VALUES (gen_random_uuid(), $1)
+         VALUES ($1, $2)
          RETURNING group_id, name, created_at`,
-        [name]
+        [groupId, name]
       );
       return result.rows[0];
     });

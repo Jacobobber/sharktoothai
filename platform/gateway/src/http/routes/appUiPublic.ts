@@ -23,10 +23,6 @@ appUiPublicRouter.get("/styles.css", (_req, res) => {
   return res.sendFile(path.join(publicSitePath, "styles.css"));
 });
 
-appUiPublicRouter.get("/public-site.js", (_req, res) => {
-  return res.sendFile(path.join(publicSitePath, "public-site.js"));
-});
-
 appUiPublicRouter.get("/security", (_req, res) => {
   return res.sendFile(path.join(publicSitePath, "security.html"));
 });

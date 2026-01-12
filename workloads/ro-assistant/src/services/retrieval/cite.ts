@@ -101,7 +101,7 @@ const applyToneToSummaryLine = (answer: string, tone: AnswerTone): string => {
   return lines.join("\n");
 };
 
-const buildDeterministicAnswer = (input: NormalizedInput, tone: AnswerTone): string => {
+const buildDeterministicCitedAnswer = (input: NormalizedInput, tone: AnswerTone): string => {
   const defaultSummary = "The relevant repair order details are summarized below";
   const lines: string[] = [buildSummaryLine(tone, defaultSummary)];
   const sentences: string[] = [];
@@ -138,7 +138,7 @@ export const buildCitedAnswer = async (
 
   return {
     prompt,
-    answer: buildDeterministicAnswer(normalized, tone),
+    answer: buildDeterministicCitedAnswer(normalized, tone),
     used_llm: false
   };
 };
