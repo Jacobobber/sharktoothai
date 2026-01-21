@@ -59,6 +59,15 @@ if ([string]::IsNullOrWhiteSpace($uamiResourceId)) {
   az identity create -g $tenantRg -n $uamiName -l $Location -o none
 }
 
+$stgId = az storage account show -g $tenantRg -n $storageAccountName --query id -o tsv
+
+Write-Host "Assigning Storage Blob Data Contributor to tenant UAMI..."
+az role assignment create `
+  --assignee-object-id $uamiPrincipalId `
+  --assignee-principal-type ServicePrincipal `
+  --role "Storage Blob Data Contributor" `
+  --scope $stgId -o none
+
 # Re-read (and retry briefly) until principalId is present
 $maxTries = 10
 for ($i=1; $i -le $maxTries; $i++) {
