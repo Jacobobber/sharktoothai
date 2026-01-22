@@ -13,20 +13,24 @@ param storageAccountName string
 @description('Optional tags to apply to resources.')
 param tags object = {}
 
-param env string
-param tenantId string
-
-var tags = {
+var defaultTags = {
   'stai:env': env
   'stai:tenantId': tenantId
   'stai:component': 'tenant-storage'
 }
 
+var mergedTags = union(defaultTags, tags)
+
+var containerNames = [
+  'ro-raw'
+  'ro-processed'
+  'ro-quarantine'
+]
 
 resource stg 'Microsoft.Storage/storageAccounts@2023-01-01' = {
   name: storageAccountName
   location: location
-  tags: tags
+  tags: mergedTags
   sku: {
     name: 'Standard_LRS'
   }
@@ -35,13 +39,11 @@ resource stg 'Microsoft.Storage/storageAccounts@2023-01-01' = {
     allowBlobPublicAccess: false
     minimumTlsVersion: 'TLS1_2'
     accessTier: 'Hot'
-    // Keep public network enabled for now (you said public networking is OK).
     publicNetworkAccess: 'Enabled'
     networkAcls: {
       defaultAction: 'Allow'
       bypass: 'AzureServices'
     }
-    // Enable HNS if you plan SFTP/ADLS patterns later. Safe to enable now.
     isHnsEnabled: true
   }
 }
@@ -51,27 +53,21 @@ resource blob 'Microsoft.Storage/storageAccounts/blobServices@2023-01-01' = {
 }
 
 resource roRaw 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-01-01' = {
-  name: '${blob.name}/ro-raw'
-  properties: { }
+  name: '${blob.name}/${containerNames[0]}'
+  properties: {}
 }
 
 resource roProcessed 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-01-01' = {
-  name: '${blob.name}/ro-processed'
-  properties: { }
+  name: '${blob.name}/${containerNames[1]}'
+  properties: {}
 }
 
 resource roQuarantine 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-01-01' = {
-  name: '${blob.name}/ro-quarantine'
-  properties: { }
+  name: '${blob.name}/${containerNames[2]}'
+  properties: {}
 }
-
-resource stg 'Microsoft.Storage/storageAccounts@2023-01-01' = {
-  name: storageAccountName
-  location: location
-  tags: tags
-  ...
-}
-
 
 output storageAccountResourceId string = stg.id
 output storageAccountName string = stg.name
+output blobEndpoint string = stg.properties.primaryEndpoints.blob
+output containerNames array = containerNames

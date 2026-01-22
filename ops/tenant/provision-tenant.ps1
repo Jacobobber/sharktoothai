@@ -16,6 +16,9 @@ $ErrorActionPreference = "Stop"
 $subscriptionId = $SubscriptionId
 $location = $Location
 $storageAccountName = ""
+$storageResourceId = ""
+$storageContainers = @()
+$deploymentResult = $null
 
 function Get-DeterministicStorageAccountName([string] $env, [string] $tenantId) {
   $base = ("stai" + $env + $tenantId).ToLower()
@@ -94,15 +97,6 @@ if ([string]::IsNullOrWhiteSpace($uamiResourceId)) {
   az identity create -g $tenantRg -n $uamiName -l $location -o none
 }
 
-$stgId = az storage account show -g $tenantRg -n $storageAccountName --query id -o tsv
-
-Write-Host "Assigning Storage Blob Data Contributor to tenant UAMI..."
-az role assignment create `
-  --assignee-object-id $uamiPrincipalId `
-  --assignee-principal-type ServicePrincipal `
-  --role "Storage Blob Data Contributor" `
-  --scope $stgId -o none
-
 # Re-read (and retry briefly) until principalId is present
 $maxTries = 10
 for ($i=1; $i -le $maxTries; $i++) {
@@ -119,7 +113,6 @@ if ([string]::IsNullOrWhiteSpace($uamiPrincipalId)) {
 Write-Host "UAMI ready:"
 Write-Host "  id: $uamiResourceId"
 Write-Host "  principalId: $uamiPrincipalId"
-
 
 # Resolve ACR resource ID
 $acrId = az acr show -g $FoundationRg -n $AcrName --query id -o tsv
@@ -159,13 +152,45 @@ $tags = @{
 $tagsJson = ($tags | ConvertTo-Json -Compress)
 
 Write-Host "Deploying tenant storage (Bicep)..."
-az deployment group create `
+$deploymentResult = az deployment group create `
   -g $tenantRg `
   -n "tenant-storage" `
   --mode Incremental `
   --template-file "infra/tenant/tenant-storage.bicep" `
   --parameters location=$location env=$Env tenantId=$TenantId storageAccountName=$storageAccountName tags=$tagsJson `
-  -o none
+  -o json | ConvertFrom-Json
+
+$storageResourceId = $deploymentResult.properties.outputs.storageAccountResourceId.value
+$storageContainers = $deploymentResult.properties.outputs.containerNames.value
+
+if ([string]::IsNullOrWhiteSpace($storageResourceId)) {
+  $storageResourceId = az storage account show -g $tenantRg -n $storageAccountName --query id -o tsv 2>$null
+}
+
+if ([string]::IsNullOrWhiteSpace($storageResourceId)) {
+  throw "Storage resourceId is empty after deployment for account '$storageAccountName' (rg=$tenantRg)."
+}
+
+Write-Host "Storage scope resourceId: $storageResourceId"
+
+# Ensure Storage Blob Data Contributor for tenant UAMI (idempotent)
+$hasStorageRole = az role assignment list `
+  --assignee-object-id $uamiPrincipalId `
+  --scope $storageResourceId `
+  --query "[?roleDefinitionName=='Storage Blob Data Contributor'] | length(@)" `
+  -o tsv
+
+if ($hasStorageRole -eq "0") {
+  Write-Host "Assigning Storage Blob Data Contributor to tenant UAMI..."
+  az role assignment create `
+    --assignee-object-id $uamiPrincipalId `
+    --assignee-principal-type ServicePrincipal `
+    --role "Storage Blob Data Contributor" `
+    --scope $storageResourceId -o none
+  Write-Host "Storage role assignment applied."
+} else {
+  Write-Host "Storage role assignment already present; skipping."
+}
 
 Write-Host "== Done =="
 Write-Host "Tenant RG:   $tenantRg"
@@ -173,4 +198,5 @@ Write-Host "UAMI ID:     $uamiResourceId"
 Write-Host "UAMI OID:    $uamiPrincipalId"
 Write-Host "Storage:     $storageAccountName"
 Write-Host "ACR:         $AcrName"
-Write-Host "Summary: tenantRg=$tenantRg uamiName=$uamiName storageAccountName=$storageAccountName containers=ro-raw,ro-processed,ro-quarantine"
+if ($storageContainers.Count -eq 0) { $storageContainers = @("ro-raw","ro-processed","ro-quarantine") }
+Write-Host "Summary: tenantRg=$tenantRg uamiName=$uamiName storageAccountName=$storageAccountName containers=$($storageContainers -join ',')"
